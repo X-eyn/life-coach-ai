@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import { useSession, useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import { TokenSource } from 'livekit-client';
 import { Mic, Loader2, Radio } from 'lucide-react';
 import { AgentSessionProvider } from '@/components/agent-session-provider';
 import { AgentAudioVisualizerBar } from '@/components/agent-audio-visualizer-bar';
-import { AgentChatTranscript } from '@/components/agent-chat-transcript';
 import { AgentControlBar } from '@/components/agent-control-bar';
 import { StartAudioButton } from '@/components/start-audio-button';
+import { PropertiesPane } from '@/components/properties-pane';
+import { ChatPanel } from '@/components/chat-panel';
 
 // Token source — calls POST /api/token
 const tokenSource = TokenSource.endpoint('/api/token');
@@ -17,7 +17,6 @@ const tokenSource = TokenSource.endpoint('/api/token');
 // Inner component: only rendered inside an active session
 // ─────────────────────────────────────────────────────────
 function VoiceAgentUI() {
-  const [chatOpen, setChatOpen] = useState(false);
   const session = useSessionContext();
   const { microphoneTrack, state } = useAgent();
   const { messages } = useSessionMessages(session);
@@ -35,26 +34,29 @@ function VoiceAgentUI() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      {/* ── Header ── */}
-      <header className="flex items-center justify-between border-b border-white/8 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15">
-            <Radio className="h-4 w-4 text-primary" />
-          </div>
-          <span className="text-sm font-semibold tracking-wide text-foreground/90">
-            Voice Agent
-          </span>
-        </div>
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-muted-foreground capitalize">
-          {stateLabel[state ?? 'disconnected'] ?? state}
-        </span>
-      </header>
+    <div className="flex h-full flex-row overflow-hidden">
+      {/* ── Left: chat transcript ── */}
+      <ChatPanel messages={messages} agentState={state} />
 
-      {/* ── Main area ── */}
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 overflow-hidden px-6 py-10">
+      {/* ── Center: visualizer + controls ── */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15">
+              <Radio className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-sm font-semibold tracking-wide text-foreground/90">
+              Voice Agent
+            </span>
+          </div>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-muted-foreground capitalize">
+            {stateLabel[state ?? 'disconnected'] ?? state}
+          </span>
+        </header>
+
         {/* Visualizer */}
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
           <AgentAudioVisualizerBar
             size="lg"
             state={state}
@@ -62,33 +64,25 @@ function VoiceAgentUI() {
             color="#1FD5F9"
             barCount={7}
           />
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground/60">
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground/50">
             {stateLabel[state ?? 'disconnected'] ?? state}
           </p>
         </div>
 
-        {/* Transcript */}
-        <div className="w-full max-w-xl flex-1 overflow-hidden rounded-xl border border-white/6 bg-white/[0.03]">
-          <AgentChatTranscript
-            agentState={state}
-            messages={messages}
-            className="h-full"
+        {/* Controls */}
+        <div className="flex flex-col items-center gap-3 border-t border-white/8 px-6 py-5">
+          <StartAudioButton label="Click to enable audio" variant="outline" size="sm" />
+          <AgentControlBar
+            variant="livekit"
+            isConnected
+            controls={{ microphone: true, camera: false, screenShare: false, chat: false, leave: true }}
+            className="w-full max-w-sm"
           />
         </div>
       </div>
 
-      {/* ── Controls ── */}
-      <div className="flex flex-col items-center gap-3 border-t border-white/8 px-6 py-5">
-        <StartAudioButton label="Click to enable audio" variant="outline" size="sm" />
-        <AgentControlBar
-          variant="livekit"
-          isConnected
-          isChatOpen={chatOpen}
-          onIsChatOpenChange={setChatOpen}
-          controls={{ microphone: true, camera: false, screenShare: false, chat: true, leave: true }}
-          className="w-full max-w-sm"
-        />
-      </div>
+      {/* ── Right: properties pane ── */}
+      <PropertiesPane />
     </div>
   );
 }
