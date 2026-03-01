@@ -43,3 +43,12 @@ Thumbs.db
 frontend/.next/
 frontend/node_modules/
 frontend/.env.local
+
+# Personal / media files
+*.mp3
+*.wav
+*.m4a
+*.ogg
+
+# Transcription outputs
+*transcript*.txt
