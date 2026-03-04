@@ -3,7 +3,7 @@ import time
 import os
 from dotenv import load_dotenv
 
-# 1. Load API key from .env
+
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
@@ -13,19 +13,19 @@ genai.configure(api_key=API_KEY)
 def transcribe_audio_like_a_pro(audio_file_path):
     print(f"Uploading {audio_file_path} to Gemini...")
     
-    # 2. Upload the audio file to the Gemini API
-    # The File API is required for audio files, especially longer ones.
+    
+    
     audio_file = genai.upload_file(path=audio_file_path)
     
-    # Wait for the file to be processed (important for larger files)
+    
     while audio_file.state.name == "PROCESSING":
         print(".", end="", flush=True)
         time.sleep(2)
         audio_file = genai.get_file(audio_file.name)
     print("\nUpload complete and ready for processing!")
 
-    # 3. Define the transcription prompt
-    # This prompt guides the model's transcription behavior and formatting.
+    
+    
     prompt = """
     You are an expert, professional audio transcriber who specializes in conversational Bengali mixed with English.
     
@@ -45,17 +45,17 @@ def transcribe_audio_like_a_pro(audio_file_path):
 
     print("Transcribing and analyzing the audio. This may take a minute...")
     
-    # 5. Generate the response by passing BOTH the prompt and the audio file
+    
     response = model.generate_content([prompt, audio_file])
 
-    # Clean up the file from Google's servers after we are done
+    
     genai.delete_file(audio_file.name)
 
     return response.text
 
-# --- Run the Program ---
+
 if __name__ == "__main__":
-    # Replace with the path to your audio file (mp3, wav, m4a, etc.)
+    
     audio_path = "habib.mp3" 
     
     if os.path.exists(audio_path):
