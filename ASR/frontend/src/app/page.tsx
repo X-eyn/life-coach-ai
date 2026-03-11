@@ -38,9 +38,9 @@ export default function HomePage() {
   // Map app state → Rive persona state
   const personaState: PersonaState =
     appState === "uploading"  ? "listening" :
-    appState === "processing" ? "thinking"  :
+    appState === "processing" ? "speaking"  :
     appState === "error"      ? "asleep"    :
-    "idle";
+    "thinking";
 
   const acceptFile = useCallback((f: File | null) => {
     if (!f) return;
