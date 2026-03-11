@@ -10,7 +10,7 @@ if not API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in .env file")
 genai.configure(api_key=API_KEY)
 
-def transcribe_audio_like_a_pro(audio_file_path):
+def transcribe(audio_file_path):
     print(f"Uploading {audio_file_path} to Gemini...")
     
     
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     audio_path = "habib.mp3" 
     
     if os.path.exists(audio_path):
-        transcription = transcribe_audio_like_a_pro(audio_path)
+        transcription = transcribe(audio_path)
         with open("google_transcript.txt", "w", encoding="utf-8") as f:
             f.write(transcription)
         print("Transcription saved to google_transcript.txt")
