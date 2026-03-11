@@ -39,10 +39,18 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Frontend
-frontend/.next/
-frontend/node_modules/
-frontend/.env.local
+# Frontend (all nested frontends)
+**/node_modules/
+**/.next/
+**/out/
+**/.turbo/
+**/.vercel/
+**/.cache/
+**/*.tsbuildinfo
+**/npm-debug.log*
+**/yarn-error.log*
+**/.env.local
+**/.env.production
 
 # Personal / media files
 *.mp3
