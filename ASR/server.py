@@ -12,6 +12,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from asr_google import transcribe
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
 ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "webm"}
@@ -56,4 +57,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001, host="0.0.0.0")
+    app.run(debug=True, port=5001, host="0.0.0.0", threaded=True)

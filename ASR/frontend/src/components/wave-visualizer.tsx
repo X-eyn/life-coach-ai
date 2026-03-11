@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
@@ -10,58 +10,62 @@ interface WaveVisualizerProps {
   color?: string;
   lineWidth?: number;
   className?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-const SIZE_MAP = {
-  sm: 120,
-  md: 200,
-  lg: 280,
-  xl: 360,
-};
-
-// Multiple layered sine waves for richness
-interface WaveLayer {
+interface Layer {
   amplitude: number;
   frequency: number;
   speed: number;
   phase: number;
   opacity: number;
+  fill: boolean;
 }
 
-const ACTIVE_LAYERS: WaveLayer[] = [
-  { amplitude: 0.32, frequency: 1.4, speed: 1.8, phase: 0,    opacity: 1.0 },
-  { amplitude: 0.18, frequency: 2.6, speed: 2.4, phase: 1.1,  opacity: 0.5 },
-  { amplitude: 0.10, frequency: 3.8, speed: 3.1, phase: 2.3,  opacity: 0.3 },
-];
-
-const IDLE_LAYERS: WaveLayer[] = [
-  { amplitude: 0.025, frequency: 1.0, speed: 0.4, phase: 0,   opacity: 0.45 },
+const makeLayers = (): Layer[] => [
+  { amplitude: 0.42, frequency: 1.6, speed: 0.90, phase: 0.0, opacity: 1.00, fill: true  },
+  { amplitude: 0.22, frequency: 3.1, speed: 1.55, phase: 1.8, opacity: 0.40, fill: false },
+  { amplitude: 0.13, frequency: 5.4, speed: 2.30, phase: 3.2, opacity: 0.18, fill: false },
 ];
 
 export function WaveVisualizer({
   state,
-  color = '#FA954C',
-  lineWidth = 2,
+  color = '#F97316',
+  lineWidth = 1.5,
   className,
-  size = 'xl',
 }: WaveVisualizerProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef    = useRef<number>(0);
-  const timeRef   = useRef<number>(0);
-  // amplitude envelope: 0 = flat, 1 = full
-  const envRef    = useRef<number>(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
+  const rafRef       = useRef<number>(0);
+  const timeRef      = useRef<number>(0);
+  const envRef       = useRef<number>(0.08);
+  const layersRef    = useRef<Layer[]>(makeLayers());
 
   const isActive = state === 'uploading' || state === 'processing';
 
   const hexToRgb = useCallback((hex: string) => {
-    const clean = hex.replace('#', '');
-    const bigint = parseInt(clean, 16);
-    return {
-      r: (bigint >> 16) & 255,
-      g: (bigint >> 8)  & 255,
-      b: bigint         & 255,
+    const n = parseInt(hex.replace('#', ''), 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas    = canvasRef.current;
+    if (!container || !canvas) return;
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w   = container.clientWidth;
+      const h   = container.clientHeight;
+      canvas.width  = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width  = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr); }
     };
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
+    resize();
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -69,103 +73,55 @@ export function WaveVisualizer({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const { r, g, b } = hexToRgb(color);
 
-    const rgb = hexToRgb(color);
-
-    const draw = (timestamp: number) => {
-      const dt = Math.min((timestamp - timeRef.current) / 1000, 0.05);
-      timeRef.current = timestamp;
-
-      // Smooth envelope towards target
-      const targetEnv = isActive ? 1 : 0;
-      const speed = isActive ? 1.6 : 0.8;
-      envRef.current += (targetEnv - envRef.current) * speed * dt;
-
-      const W = canvas.width;
-      const H = canvas.height;
+    const draw = (ts: number) => {
+      const dt = Math.min((ts - timeRef.current) / 1000, 0.05);
+      timeRef.current = ts;
+      const targetEnv = isActive ? 1 : 0.12;
+      envRef.current += (targetEnv - envRef.current) * (isActive ? 1.8 : 0.7) * dt;
+      const env = envRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      const W   = canvas.width  / dpr;
+      const H   = canvas.height / dpr;
       const mid = H / 2;
-
       ctx.clearRect(0, 0, W, H);
-
-      const layers = isActive || envRef.current > 0.01 ? ACTIVE_LAYERS : IDLE_LAYERS;
-
-      layers.forEach((layer) => {
+      layersRef.current.forEach((layer) => {
         layer.phase += layer.speed * dt;
-
-        const amp = mid * layer.amplitude * envRef.current;
-
-        // When almost idle, show a barely visible breath line
-        const effectiveAmp = amp + mid * 0.018;
-
-        ctx.beginPath();
-        ctx.lineWidth = lineWidth;
-        ctx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${layer.opacity * (0.15 + 0.85 * envRef.current)})`;
-        ctx.shadowColor = color;
-        ctx.shadowBlur  = isActive ? 8 * envRef.current : 0;
-
-        const steps = W;
-        for (let x = 0; x <= steps; x++) {
-          const t = x / W;
-          const y = mid + Math.sin(t * layer.frequency * Math.PI * 2 + layer.phase) * effectiveAmp;
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        const amp = mid * 0.78 * layer.amplitude * env;
+        const pts: [number, number][] = [];
+        for (let x = 0; x <= W; x++) {
+          pts.push([x, mid + Math.sin((x / W) * layer.frequency * Math.PI * 2 + layer.phase) * amp]);
         }
+        if (layer.fill) {
+          const grad = ctx.createLinearGradient(0, mid - amp, 0, H);
+          grad.addColorStop(0,   `rgba(${r},${g},${b},${0.18 * env})`);
+          grad.addColorStop(0.6, `rgba(${r},${g},${b},${0.04 * env})`);
+          grad.addColorStop(1,   `rgba(${r},${g},${b},0)`);
+          ctx.beginPath();
+          pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+          ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+          ctx.fillStyle = grad;
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.lineWidth   = lineWidth;
+        ctx.strokeStyle = `rgba(${r},${g},${b},${layer.opacity * Math.max(env, 0.12)})`;
+        if (layer.fill && isActive) { ctx.shadowColor = color; ctx.shadowBlur = 18 * env; }
+        pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
         ctx.stroke();
         ctx.shadowBlur = 0;
       });
-
-      // Flat centre reference line (very subtle)
-      ctx.beginPath();
-      ctx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.08)`;
-      ctx.lineWidth = 1;
-      ctx.moveTo(0, mid);
-      ctx.lineTo(W, mid);
-      ctx.stroke();
-
       rafRef.current = requestAnimationFrame(draw);
     };
-
     timeRef.current = performance.now();
-    rafRef.current = requestAnimationFrame(draw);
-
+    rafRef.current  = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
   }, [isActive, color, lineWidth, hexToRgb]);
 
-  // Handle HiDPI / canvas sizing
-  const canvasSize = SIZE_MAP[size];
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width  = canvasSize * dpr;
-    canvas.height = (canvasSize / 3) * dpr;
-    canvas.style.width  = `${canvasSize}px`;
-    canvas.style.height = `${canvasSize / 3}px`;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
-  }, [canvasSize]);
-
-  // State label
-  const label: Record<VisualizerState, string> = {
-    idle:       '',
-    uploading:  'Uploading…',
-    processing: 'Transcribing…',
-    done:       '',
-    error:      '',
-  };
-
   return (
-    <div className={cn('flex flex-col items-center gap-3', className)}>
-      <canvas ref={canvasRef} className="block" />
-      {label[state] && (
-        <span
-          key={state}
-          className="text-xs font-medium tracking-widest uppercase animate-pulse2"
-          style={{ color }}
-        >
-          {label[state]}
-        </span>
-      )}
+    <div ref={containerRef} className={cn('relative w-full h-full', className)}>
+      <canvas ref={canvasRef} className="absolute inset-0" />
     </div>
   );
 }

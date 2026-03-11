@@ -11,8 +11,10 @@
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "@rive-app/react-webgl2": "^4.27.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
+    "motion": "^12.35.2",
     "next": "^16.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

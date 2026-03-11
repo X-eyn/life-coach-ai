@@ -1,7 +1,9 @@
-'use client';
+﻿'use client';
 
+import { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface TranscriptViewProps {
@@ -9,47 +11,59 @@ interface TranscriptViewProps {
   className?: string;
 }
 
+function wordCount(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 export function TranscriptView({ transcript, className }: TranscriptViewProps) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = useCallback(async () => {
+    await navigator.clipboard.writeText(transcript);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [transcript]);
+
+  const wc = wordCount(transcript);
+
   return (
-    <div
-      className={cn(
-        'relative w-full rounded-2xl border border-white/[0.07] bg-surface-2 overflow-hidden animate-slide-up',
-        className,
-      )}
-    >
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-surface-3">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-brand" />
-          <span className="text-xs font-medium text-zinc-400 tracking-wide uppercase">
-            Transcript
-          </span>
+    <div className={cn('w-full rounded-2xl overflow-hidden border border-white/[0.055] animate-enter-up', className)}>
+      <div className="flex items-center justify-between px-5 h-11 bg-ink-2 border-b border-white/[0.045]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-accent" style={{ boxShadow: '0 0 6px #F97316' }} />
+          <span className="text-[11px] font-medium text-tx-3 tracking-[0.12em] uppercase select-none">Transcript</span>
+          <span className="text-[11px] text-tx-4 font-mono select-none">{wc} words</span>
         </div>
         <button
-          onClick={() => navigator.clipboard.writeText(transcript)}
-          className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors px-2 py-0.5 rounded hover:bg-white/5 active:bg-white/10"
+          onClick={copy}
+          className={cn(
+            'flex items-center gap-1.5 px-3 h-7 rounded-lg text-[11px] font-medium transition-all duration-150',
+            copied
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'text-tx-3 hover:text-tx-DEFAULT hover:bg-white/[0.04] border border-transparent',
+          )}
         >
-          Copy
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-
-      {/* Body */}
-      <div className="p-6 max-h-[480px] overflow-y-auto">
+      <div className="bg-ink-1 px-7 py-7 max-h-[520px] overflow-y-auto">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
             p: ({ children }) => (
-              <p className="text-[0.92rem] leading-7 text-zinc-200 mb-3 last:mb-0">
-                {children}
-              </p>
+              <p className="text-[14px] leading-[1.85] text-tx-2 mb-4 last:mb-0">{children}</p>
             ),
             strong: ({ children }) => (
-              <strong className="font-semibold text-brand">{children}</strong>
+              <strong className="font-semibold" style={{ color: '#F97316' }}>{children}</strong>
             ),
             em: ({ children }) => (
-              <em className="italic text-zinc-400">{children}</em>
+              <em className="italic text-tx-3">{children}</em>
             ),
-            hr: () => <hr className="border-white/10 my-4" />,
+            hr: () => <hr className="border-white/[0.06] my-5" />,
+            code: ({ children }) => (
+              <code className="font-mono text-[13px] text-tx-2 bg-ink-3 px-1.5 py-0.5 rounded">{children}</code>
+            ),
           }}
         >
           {transcript}

@@ -1,13 +1,11 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:5001/api/:path*',
-      },
-    ];
+  experimental: {
+    serverActions: {
+      // Allow large audio file uploads (up to 200 MB)
+      bodySizeLimit: '200mb',
+    },
   },
 };
 
