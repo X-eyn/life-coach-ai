@@ -9,6 +9,11 @@ import { cn } from "@/lib/utils";
 
 type AppState = "idle" | "uploading" | "processing" | "done" | "error";
 
+interface TranscriptData {
+  bengali: string;
+  english: string;
+}
+
 function fmtBytes(b: number) {
   if (!b) return "0 B";
   const k = 1024, s = ["B", "KB", "MB", "GB"];
@@ -27,7 +32,7 @@ const STATUS: Record<AppState, { label: string; color: string }> = {
 export default function HomePage() {
   const [appState, setAppState]     = useState<AppState>("idle");
   const [file, setFile]             = useState<File | null>(null);
-  const [transcript, setTranscript] = useState("");
+  const [transcript, setTranscript] = useState<TranscriptData | null>(null);
   const [error, setError]           = useState("");
   const [dragging, setDragging]     = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,17 +54,17 @@ export default function HomePage() {
       setAppState("error");
       return;
     }
-    setFile(f); setTranscript(""); setError(""); setAppState("idle");
+    setFile(f); setTranscript(null); setError(""); setAppState("idle");
   }, []);
 
   const onChange   = (e: ChangeEvent<HTMLInputElement>) => { acceptFile(e.target.files?.[0] ?? null); e.target.value = ""; };
   const onDrop     = (e: DragEvent<HTMLDivElement>)     => { e.preventDefault(); setDragging(false); acceptFile(e.dataTransfer.files?.[0] ?? null); };
   const onDragOver = (e: DragEvent<HTMLDivElement>)     => { e.preventDefault(); setDragging(true); };
-  const clear      = ()                                 => { setFile(null); setTranscript(""); setError(""); setAppState("idle"); };
+  const clear      = ()                                 => { setFile(null); setTranscript(null); setError(""); setAppState("idle"); };
 
   const run = async () => {
     if (!file || isWorking) return;
-    setError(""); setTranscript(""); setAppState("uploading");
+    setError(""); setTranscript(null); setAppState("uploading");
     const fd = new FormData();
     fd.append("file", file);
     try {
@@ -70,7 +75,7 @@ export default function HomePage() {
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const { transcript: t } = await res.json();
-      setTranscript(t ?? ""); setAppState("done");
+      setTranscript(t ?? null); setAppState("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error.");
       setAppState("error");

@@ -13,10 +13,7 @@ genai.configure(api_key=API_KEY)
 def transcribe(audio_file_path):
     print(f"Uploading {audio_file_path} to Gemini...")
     
-    
-    
     audio_file = genai.upload_file(path=audio_file_path)
-    
     
     while audio_file.state.name == "PROCESSING":
         print(".", end="", flush=True)
@@ -24,9 +21,10 @@ def transcribe(audio_file_path):
         audio_file = genai.get_file(audio_file.name)
     print("\nUpload complete and ready for processing!")
 
-    
-    
-    prompt = """
+    model = genai.GenerativeModel('models/gemini-3-flash-preview')
+
+    # Bengali transcription
+    bengali_prompt = """
     You are an expert, professional audio transcriber who specializes in conversational Bengali mixed with English.
     
     Your task is to transcribe the provided audio clip with 100% accuracy, formatted beautifully.
@@ -41,17 +39,33 @@ def transcribe(audio_file_path):
     
     Do not add any introductory or concluding remarks. Just output the pure, formatted transcription.
     """
-    model = genai.GenerativeModel('models/gemini-3-flash-preview')
 
-    print("Transcribing and analyzing the audio. This may take a minute...")
+    # English transcription prompt
+    english_prompt = """
+    You are an expert audio transcriber and translator. Your task is to:
+    1. Transcribe the provided audio in English with 100% accuracy
+    2. Use speaker diarization with labels like **Speaker 1:** or **Speaker 2:** based on contextual clues
+    3. Maintain the same formatting and structure as the Bengali version
+    4. Preserve natural pauses, interruptions, and conversational nuances
+    5. Include speaker labels in bold followed by colon and their speech
     
-    
-    response = model.generate_content([prompt, audio_file])
+    Do not add any introductory or concluding remarks. Just output the pure, formatted English transcription.
+    """
 
-    
+    print("Transcribing in Bengali...")
+    bengali_response = model.generate_content([bengali_prompt, audio_file])
+    bengali_text = bengali_response.text
+
+    print("Transcribing in English...")
+    english_response = model.generate_content([english_prompt, audio_file])
+    english_text = english_response.text
+
     genai.delete_file(audio_file.name)
 
-    return response.text
+    return {
+        "bengali": bengali_text,
+        "english": english_text
+    }
 
 
 if __name__ == "__main__":
@@ -59,9 +73,11 @@ if __name__ == "__main__":
     audio_path = "habib.mp3" 
     
     if os.path.exists(audio_path):
-        transcription = transcribe(audio_path)
-        with open("google_transcript.txt", "w", encoding="utf-8") as f:
-            f.write(transcription)
-        print("Transcription saved to google_transcript.txt")
+        result = transcribe(audio_path)
+        with open("google_transcript_bengali.txt", "w", encoding="utf-8") as f:
+            f.write(result["bengali"])
+        with open("google_transcript_english.txt", "w", encoding="utf-8") as f:
+            f.write(result["english"])
+        print("Transcriptions saved to google_transcript_bengali.txt and google_transcript_english.txt")
     else:
         print(f"Error: Could not find file at {audio_path}")

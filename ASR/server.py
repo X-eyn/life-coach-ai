@@ -1,9 +1,13 @@
 import os
 import sys
 import tempfile
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from dotenv import load_dotenv
+from docx import Document
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import io
 
 # Ensure the ASR directory is in path so asr_google can be imported
 sys.path.insert(0, os.path.dirname(__file__))
@@ -19,6 +23,34 @@ ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "webm"}
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def generate_word_document(bengali_transcript: str, english_transcript: str) -> io.BytesIO:
+    """Generate a Word document with bilingual transcripts."""
+    doc = Document()
+    
+    # Add title
+    title = doc.add_heading("Transcript", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add Bengali section
+    doc.add_heading("Bengali Transcript", level=1)
+    bengali_para = doc.add_paragraph(bengali_transcript)
+    bengali_para.paragraph_format.line_spacing = 1.5
+    
+    # Add section break
+    doc.add_paragraph()
+    
+    # Add English section
+    doc.add_heading("English Transcript", level=1)
+    english_para = doc.add_paragraph(english_transcript)
+    english_para.paragraph_format.line_spacing = 1.5
+    
+    # Save to BytesIO
+    doc_io = io.BytesIO()
+    doc.save(doc_io)
+    doc_io.seek(0)
+    return doc_io
 
 
 @app.route("/api/transcribe", methods=["POST"])
@@ -40,8 +72,13 @@ def transcribe_endpoint():
             file.save(tmp.name)
             tmp_path = tmp.name
 
-        transcript = transcribe(tmp_path)
-        return jsonify({"transcript": transcript})
+        result = transcribe(tmp_path)
+        return jsonify({
+            "transcript": {
+                "bengali": result["bengali"],
+                "english": result["english"]
+            }
+        })
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -49,6 +86,29 @@ def transcribe_endpoint():
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+@app.route("/api/download-word", methods=["POST"])
+def download_word():
+    """Generate and return a Word document with transcripts."""
+    try:
+        data = request.get_json()
+        bengali_transcript = data.get("bengali", "")
+        english_transcript = data.get("english", "")
+        
+        if not bengali_transcript and not english_transcript:
+            return jsonify({"error": "No transcript provided"}), 400
+        
+        doc_io = generate_word_document(bengali_transcript, english_transcript)
+        
+        return send_file(
+            doc_io,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name="transcript.docx"
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/health", methods=["GET"])
