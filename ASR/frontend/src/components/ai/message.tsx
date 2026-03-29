@@ -3,14 +3,14 @@
 import { cn } from "@/lib/utils";
 import type { ComponentProps } from "react";
 
-// Palette for multiple speakers — dark-mode friendly
+// Premium speaker palette with warm gold theme
 const SPEAKER_PALETTE = [
-  { bg: "bg-accent/10 border-accent/20",        text: "text-tx",   label: "text-accent",       dot: "#F97316" },
-  { bg: "bg-violet-500/10 border-violet-500/20", text: "text-tx",   label: "text-violet-400",   dot: "#8B5CF6" },
-  { bg: "bg-sky-500/10 border-sky-500/20",       text: "text-tx",   label: "text-sky-400",       dot: "#38BDF8" },
-  { bg: "bg-emerald-500/10 border-emerald-500/20", text: "text-tx", label: "text-emerald-400",  dot: "#34D399" },
-  { bg: "bg-rose-500/10 border-rose-500/20",     text: "text-tx",   label: "text-rose-400",     dot: "#FB7185" },
-  { bg: "bg-amber-500/10 border-amber-500/20",   text: "text-tx",   label: "text-amber-400",    dot: "#FCD34D" },
+  { bg: "bg-gold-300/[0.08] border-gold-300/[0.2]", text: "text-gold-50", label: "text-gold-300", dot: "#d4a574" },
+  { bg: "bg-violet-400/[0.08] border-violet-400/[0.2]", text: "text-gold-50", label: "text-violet-300", dot: "#a78bfa" },
+  { bg: "bg-cyan-400/[0.08] border-cyan-400/[0.2]", text: "text-gold-50", label: "text-cyan-300", dot: "#67e8f9" },
+  { bg: "bg-emerald-400/[0.08] border-emerald-400/[0.2]", text: "text-gold-50", label: "text-emerald-300", dot: "#6ee7b7" },
+  { bg: "bg-rose-400/[0.08] border-rose-400/[0.2]", text: "text-gold-50", label: "text-rose-300", dot: "#fb7185" },
+  { bg: "bg-amber-400/[0.08] border-amber-400/[0.2]", text: "text-gold-50", label: "text-amber-300", dot: "#fcd34d" },
 ];
 
 export function getSpeakerStyle(index: number) {
@@ -37,18 +37,18 @@ export const Message = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 max-w-[80%]",
+        "flex flex-col gap-1.5 max-w-[75%] animate-slide-in-right",
         isRight ? "self-end items-end" : "self-start items-start",
         className,
       )}
       {...props}
     >
-      <div className={cn("flex items-center gap-1.5 px-1", isRight && "flex-row-reverse")}>
+      <div className={cn("flex items-center gap-2 px-1", isRight && "flex-row-reverse")}>
         <span
-          className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
-          style={{ background: style.dot }}
+          className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+          style={{ background: style.dot, boxShadow: `0 0 6px ${style.dot}40` }}
         />
-        <span className={cn("text-[10px] font-medium tracking-wide uppercase select-none", style.label)}>
+        <span className={cn("text-[10px] font-semibold tracking-widest uppercase select-none", style.label)}>
           {speaker}
         </span>
       </div>
@@ -72,7 +72,8 @@ export const MessageContent = ({
   return (
     <div
       className={cn(
-        "rounded-2xl border px-4 py-3 text-[13.5px] leading-relaxed",
+        "rounded-2xl border px-5 py-3.5 text-sm leading-relaxed font-medium transition-all duration-200 hover:border-opacity-40",
+        "glass-sm backdrop-blur-xl",
         style.bg,
         style.text,
         className,

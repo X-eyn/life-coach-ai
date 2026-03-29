@@ -108,68 +108,71 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
   const firstSpeakerIndex = turns[0]?.speakerIndex ?? 0;
 
   return (
-    <div className={cn('w-full rounded-2xl overflow-hidden border border-white/[0.055] animate-enter-up', className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 h-11 bg-ink-2 border-b border-white/[0.045]">
-        <div className="flex items-center gap-2.5 flex-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-accent" style={{ boxShadow: '0 0 6px #F97316' }} />
-          <span className="text-[11px] font-medium text-tx-3 tracking-[0.12em] uppercase select-none">Transcript</span>
-          <span className="text-[11px] text-tx-4 font-mono select-none">{wc} words</span>
-          <span className="text-[11px] text-tx-4 select-none">·</span>
-          <span className="text-[11px] text-tx-4 font-mono select-none">{turns.length} turns</span>
+    <div className={cn('w-full rounded-2xl overflow-hidden border border-gold-300/[0.2] glass-elevated animate-enter-up', className)}>
+      {/* Premium Header */}
+      <div className="flex items-center justify-between px-6 h-14 bg-charcoal-800/[0.8] border-b border-gold-300/[0.15]">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-2 h-2 rounded-full bg-gold-400 shadow-glow" />
+          <span className="text-xs font-semibold text-gold-300 tracking-widest uppercase">Transcript</span>
+          <span className="text-xs text-gold-300/60 font-mono">{wc} words</span>
+          <span className="text-xs text-gold-300/60">·</span>
+          <span className="text-xs text-gold-300/60 font-mono">{turns.length} turns</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={downloadWord}
             disabled={isDownloading}
             className={cn(
-              'flex items-center gap-1.5 px-3 h-7 rounded-lg text-[11px] font-medium transition-all duration-150',
+              'flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-xs font-semibold transition-all duration-150 tracking-wide',
               isDownloading
-                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                : 'text-tx-3 hover:text-tx-DEFAULT hover:bg-white/[0.04] border border-transparent',
+                ? 'glass-sm bg-blue-400/[0.12] text-blue-300 border-blue-400/30'
+                : 'text-gold-300/70 hover:text-gold-300 hover:bg-gold-300/10 border border-gold-300/20',
             )}
             title="Download as Word document"
           >
-            {isDownloading ? <Loader size={11} className="animate-spin" /> : <Download size={11} />}
-            {isDownloading ? 'Downloading...' : 'Word'}
+            {isDownloading ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
+            <span>{isDownloading ? 'Downloading' : 'Word'}</span>
           </button>
           <button
             onClick={copy}
             className={cn(
-              'flex items-center gap-1.5 px-3 h-7 rounded-lg text-[11px] font-medium transition-all duration-150',
+              'flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-xs font-semibold transition-all duration-150 tracking-wide',
               copied
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                : 'text-tx-3 hover:text-tx-DEFAULT hover:bg-white/[0.04] border border-transparent',
+                ? 'glass-sm bg-emerald-400/[0.12] text-emerald-300 border-emerald-400/30'
+                : 'text-gold-300/70 hover:text-gold-300 hover:bg-gold-300/10 border border-gold-300/20',
             )}
           >
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
       </div>
 
-      {/* Language tabs */}
-      <div className="flex gap-0 px-5 pt-4 border-b border-white/[0.045]">
+      {/* Premium Language Tabs */}
+      <div className="flex gap-0 px-6 pt-4 border-b border-gold-300/[0.15] bg-charcoal-800/[0.4]">
         {(['bengali', 'english'] as const).map((lang) => (
           <button
             key={lang}
             onClick={() => setActiveTab(lang)}
             className={cn(
-              'px-3 py-2 text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 border-b-2',
+              'px-4 py-3 text-xs font-semibold tracking-widest uppercase transition-all duration-200 border-b-2 relative',
               activeTab === lang
-                ? 'text-tx border-accent'
-                : 'text-tx-3 border-transparent hover:text-tx-2',
+                ? 'text-gold-300 border-gold-400'
+                : 'text-gold-300/60 border-transparent hover:text-gold-300',
             )}
           >
             {lang === 'bengali' ? 'Bengali' : 'English'}
+            {activeTab === lang && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-gold-400/40 via-gold-300 to-gold-400/40" />
+            )}
           </button>
         ))}
       </div>
 
-      {/* Conversation bubbles */}
-      <div className="relative bg-ink-1" style={{ height: '520px' }}>
+      {/* Conversation Bubbles - Premium Container */}
+      <div className="relative bg-charcoal-900/[0.5] backdrop-blur-sm" style={{ height: '520px' }}>
         <Conversation className="absolute inset-0">
-          <ConversationContent className="px-5 py-5">
+          <ConversationContent className="px-6 py-6">
             {turns.map((turn) => (
               <Message
                 key={turn.id}

@@ -29,8 +29,8 @@ const makeLayers = (): Layer[] => [
 
 export function WaveVisualizer({
   state,
-  color = '#F97316',
-  lineWidth = 1.5,
+  color = '#d4a574',
+  lineWidth = 2,
   className,
 }: WaveVisualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
