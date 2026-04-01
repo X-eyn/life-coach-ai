@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import time
 import os
+import sys
 from dotenv import load_dotenv
 
 
@@ -11,15 +12,15 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 def transcribe(audio_file_path):
-    print(f"Uploading {audio_file_path} to Gemini...")
+    print(f"Uploading {audio_file_path} to Gemini...", file=sys.stderr)
     
     audio_file = genai.upload_file(path=audio_file_path)
     
     while audio_file.state.name == "PROCESSING":
-        print(".", end="", flush=True)
+        print(".", end="", flush=True, file=sys.stderr)
         time.sleep(2)
         audio_file = genai.get_file(audio_file.name)
-    print("\nUpload complete and ready for processing!")
+    print("\nUpload complete and ready for processing!", file=sys.stderr)
 
     model = genai.GenerativeModel('models/gemini-3-flash-preview')
 
@@ -52,11 +53,11 @@ def transcribe(audio_file_path):
     Do not add any introductory or concluding remarks. Just output the pure, formatted English transcription.
     """
 
-    print("Transcribing in Bengali...")
+    print("Transcribing in Bengali...", file=sys.stderr)
     bengali_response = model.generate_content([bengali_prompt, audio_file])
     bengali_text = bengali_response.text
 
-    print("Transcribing in English...")
+    print("Transcribing in English...", file=sys.stderr)
     english_response = model.generate_content([english_prompt, audio_file])
     english_text = english_response.text
 

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useCallback, useMemo } from 'react';
 import { Check, Copy, Download, Loader } from 'lucide-react';
@@ -25,18 +25,18 @@ function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/**
- * Parses a speaker-diarized markdown transcript into turn objects.
- * Handles: **Speaker:** text  and  [Speaker]: text
- */
 function parseTurns(transcript: string): Turn[] {
   const text = transcript.replace(/\r\n/g, '\n');
   const regex = /(?:\*\*([^*\n:]+?):\*\*|\[([^\]\n]+?)\]:)\s*/g;
 
   const markers: { index: number; speaker: string; fullMatch: string }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = regex.exec(text)) !== null) {
-    markers.push({ index: m.index + m[0].length, speaker: (m[1] || m[2]).trim(), fullMatch: m[0] });
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    markers.push({
+      index: match.index + match[0].length,
+      speaker: (match[1] || match[2]).trim(),
+      fullMatch: match[0],
+    });
   }
 
   if (markers.length === 0) {
@@ -49,12 +49,17 @@ function parseTurns(transcript: string): Turn[] {
   });
 
   const turns: Turn[] = [];
-  for (let i = 0; i < markers.length; i++) {
-    const { index, speaker } = markers[i];
-    const end = i + 1 < markers.length ? markers[i + 1].index - markers[i + 1].fullMatch.length : text.length;
-    const raw = text.slice(index, end).trim();
+  for (let index = 0; index < markers.length; index += 1) {
+    const { speaker, index: start } = markers[index];
+    const end = index + 1 < markers.length ? markers[index + 1].index - markers[index + 1].fullMatch.length : text.length;
+    const raw = text.slice(start, end).trim();
     if (!raw) continue;
-    turns.push({ id: `${i}`, speaker, speakerIndex: speakerMap.get(speaker) ?? 0, text: raw });
+    turns.push({
+      id: `${index}`,
+      speaker,
+      speakerIndex: speakerMap.get(speaker) ?? 0,
+      text: raw,
+    });
   }
 
   return turns;
@@ -70,7 +75,7 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
   const copy = useCallback(async () => {
     await navigator.clipboard.writeText(currentTranscript);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1800);
   }, [currentTranscript]);
 
   const downloadWord = useCallback(async () => {
@@ -89,90 +94,75 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'transcript.docx';
-      document.body.appendChild(a);
-      a.click();
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'transcript.docx';
+      document.body.appendChild(anchor);
+      anchor.click();
       window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Download error:', err);
+      document.body.removeChild(anchor);
+    } catch (error) {
+      console.error('Download error:', error);
     } finally {
       setIsDownloading(false);
     }
   }, [transcript]);
 
   const turns = useMemo(() => parseTurns(currentTranscript), [currentTranscript]);
-  const wc = wordCount(currentTranscript);
+  const wordTotal = wordCount(currentTranscript);
   const firstSpeakerIndex = turns[0]?.speakerIndex ?? 0;
 
   return (
-    <div className={cn('w-full rounded-2xl overflow-hidden border border-gold-300/[0.2] glass-elevated animate-enter-up', className)}>
-      {/* Premium Header */}
-      <div className="flex items-center justify-between px-6 h-14 bg-charcoal-800/[0.8] border-b border-gold-300/[0.15]">
-        <div className="flex items-center gap-3 flex-1">
-          <div className="w-2 h-2 rounded-full bg-gold-400 shadow-glow" />
-          <span className="text-xs font-semibold text-gold-300 tracking-widest uppercase">Transcript</span>
-          <span className="text-xs text-gold-300/60 font-mono">{wc} words</span>
-          <span className="text-xs text-gold-300/60">·</span>
-          <span className="text-xs text-gold-300/60 font-mono">{turns.length} turns</span>
+    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+      <div className="flex h-16 items-center justify-between border-b border-[rgba(255,230,0,0.72)] px-5">
+        <div className="flex min-w-0 items-center gap-3 text-xs tracking-[0.22em] text-[rgba(255,230,0,0.76)]">
+          <span className="font-semibold text-[rgba(255,230,0,0.96)]">TRANSCRIPT</span>
+          <span>{wordTotal} WORDS</span>
+          <span>{turns.length} TURNS</span>
         </div>
+
         <div className="flex items-center gap-2">
           <button
             onClick={downloadWord}
             disabled={isDownloading}
-            className={cn(
-              'flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-xs font-semibold transition-all duration-150 tracking-wide',
-              isDownloading
-                ? 'glass-sm bg-blue-400/[0.12] text-blue-300 border-blue-400/30'
-                : 'text-gold-300/70 hover:text-gold-300 hover:bg-gold-300/10 border border-gold-300/20',
-            )}
+            className="ink-button inline-flex h-10 items-center gap-2 px-3 text-[10px] font-semibold tracking-[0.24em] disabled:opacity-35"
             title="Download as Word document"
+            type="button"
           >
             {isDownloading ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
-            <span>{isDownloading ? 'Downloading' : 'Word'}</span>
+            <span>{isDownloading ? 'SAVING' : 'DOCX'}</span>
           </button>
+
           <button
             onClick={copy}
-            className={cn(
-              'flex items-center gap-1.5 px-3.5 h-8 rounded-lg text-xs font-semibold transition-all duration-150 tracking-wide',
-              copied
-                ? 'glass-sm bg-emerald-400/[0.12] text-emerald-300 border-emerald-400/30'
-                : 'text-gold-300/70 hover:text-gold-300 hover:bg-gold-300/10 border border-gold-300/20',
-            )}
+            className="ink-button inline-flex h-10 items-center gap-2 px-3 text-[10px] font-semibold tracking-[0.24em]"
+            type="button"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            <span>{copied ? 'COPIED' : 'COPY'}</span>
           </button>
         </div>
       </div>
 
-      {/* Premium Language Tabs */}
-      <div className="flex gap-0 px-6 pt-4 border-b border-gold-300/[0.15] bg-charcoal-800/[0.4]">
+      <div className="flex items-center gap-2 border-b border-[rgba(255,230,0,0.72)] px-5 py-3">
         {(['bengali', 'english'] as const).map((lang) => (
           <button
             key={lang}
             onClick={() => setActiveTab(lang)}
             className={cn(
-              'px-4 py-3 text-xs font-semibold tracking-widest uppercase transition-all duration-200 border-b-2 relative',
-              activeTab === lang
-                ? 'text-gold-300 border-gold-400'
-                : 'text-gold-300/60 border-transparent hover:text-gold-300',
+              'ink-button h-10 px-4 text-[10px] font-semibold tracking-[0.26em]',
+              activeTab === lang && 'bg-[var(--signal)] text-[var(--abyss)]',
             )}
+            type="button"
           >
-            {lang === 'bengali' ? 'Bengali' : 'English'}
-            {activeTab === lang && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-gold-400/40 via-gold-300 to-gold-400/40" />
-            )}
+            {lang === 'bengali' ? 'BENGALI' : 'ENGLISH'}
           </button>
         ))}
       </div>
 
-      {/* Conversation Bubbles - Premium Container */}
-      <div className="relative bg-charcoal-900/[0.5] backdrop-blur-sm" style={{ height: '520px' }}>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <Conversation className="absolute inset-0">
-          <ConversationContent className="px-6 py-6">
+          <ConversationContent className="px-5 py-5">
             {turns.map((turn) => (
               <Message
                 key={turn.id}
@@ -186,7 +176,7 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
               </Message>
             ))}
           </ConversationContent>
-          <ConversationScrollButton />
+          <ConversationScrollButton className="ink-button h-10 w-10 rounded-none border-[rgba(255,230,0,0.72)] bg-[var(--abyss)] text-[var(--signal)] hover:bg-[var(--signal)] hover:text-[var(--abyss)]" />
         </Conversation>
       </div>
     </div>
