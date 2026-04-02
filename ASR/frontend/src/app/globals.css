@@ -1,14 +1,28 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Syne:wght@500;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
-  --abyss: #020202;
-  --signal: #ffe600;
-  --signal-rgb: 255, 230, 0;
+  color-scheme: light;
+  --font-display: "Syne";
+  --font-ui: "Hanken Grotesk";
+  --font-mono: "IBM Plex Mono";
+  --atelier-paper: #f4ead7;
+  --atelier-paper-rgb: 244, 234, 215;
+  --atelier-paper-strong: #fff6e8;
+  --atelier-paper-strong-rgb: 255, 246, 232;
+  --atelier-ink: #0d1220;
+  --atelier-ink-rgb: 13, 18, 32;
+  --atelier-terracotta: #cf5a43;
+  --atelier-terracotta-rgb: 207, 90, 67;
+  --atelier-teal: #1f7e7a;
+  --atelier-teal-rgb: 31, 126, 122;
+  --atelier-cobalt: #3456d6;
+  --atelier-cobalt-rgb: 52, 86, 214;
+  --atelier-gold: #f0b35a;
+  --atelier-gold-rgb: 240, 179, 90;
 }
 
 *, *::before, *::after {
@@ -17,7 +31,7 @@
 
 html {
   scroll-behavior: smooth;
-  background: var(--abyss);
+  background: var(--atelier-paper);
 }
 
 body {
@@ -28,11 +42,11 @@ body {
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(circle at top left, rgba(var(--signal-rgb), 0.08), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(var(--signal-rgb), 0.06), transparent 26%),
-    var(--abyss);
-  color: var(--signal);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    radial-gradient(circle at top left, rgba(var(--atelier-terracotta-rgb), 0.14), transparent 20%),
+    radial-gradient(circle at top right, rgba(var(--atelier-cobalt-rgb), 0.12), transparent 22%),
+    linear-gradient(180deg, #f7edda 0%, #f3e5cd 100%);
+  color: var(--atelier-ink);
+  font-family: var(--font-ui), sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -42,13 +56,28 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: -1;
-  opacity: 0.36;
-  background-image:
-    linear-gradient(rgba(var(--signal-rgb), 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(var(--signal-rgb), 0.08) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(circle at center, black 35%, transparent 92%);
+  z-index: -2;
+  opacity: 0.26;
+  background:
+    linear-gradient(rgba(var(--atelier-ink-rgb), 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--atelier-ink-rgb), 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at center, black 38%, transparent 86%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: auto -10vw -22vh auto;
+  width: 48vw;
+  height: 48vw;
+  min-width: 420px;
+  min-height: 420px;
+  pointer-events: none;
+  z-index: -2;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--atelier-gold-rgb), 0.18), transparent 66%);
+  filter: blur(4px);
 }
 
 button,
@@ -59,130 +88,154 @@ select {
 }
 
 ::selection {
-  background: var(--signal);
-  color: var(--abyss);
+  background: rgba(var(--atelier-cobalt-rgb), 0.22);
+  color: var(--atelier-ink);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--signal) rgba(var(--signal-rgb), 0.08);
+  scrollbar-color: rgba(var(--atelier-ink-rgb), 0.3) rgba(var(--atelier-ink-rgb), 0.06);
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(var(--signal-rgb), 0.04);
+  background: rgba(var(--atelier-ink-rgb), 0.05);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(var(--signal-rgb), 0.72);
+  background: rgba(var(--atelier-ink-rgb), 0.28);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--signal);
+  background: rgba(var(--atelier-ink-rgb), 0.42);
 }
 
-.ink-shell {
+.atelier-shell {
   background:
-    linear-gradient(180deg, rgba(var(--signal-rgb), 0.035), transparent 22%),
-    var(--abyss);
-  box-shadow:
-    inset 0 0 0 1px rgba(var(--signal-rgb), 0.18),
-    0 0 64px rgba(var(--signal-rgb), 0.08);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.18)),
+    rgba(var(--atelier-paper-rgb), 0.82);
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.1);
+  box-shadow: 0 32px 100px rgba(41, 25, 18, 0.18);
+  backdrop-filter: blur(16px);
 }
 
-.ink-panel {
+.atelier-panel {
   min-width: 0;
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.12);
   background:
-    linear-gradient(180deg, rgba(var(--signal-rgb), 0.025), transparent 26%),
-    transparent;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.44)),
+    rgba(var(--atelier-paper-rgb), 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-.ink-box {
-  border: 1px solid rgba(var(--signal-rgb), 0.72);
-  background: rgba(var(--signal-rgb), 0.03);
+.atelier-card {
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.12);
+  background: rgba(255, 255, 255, 0.58);
 }
 
-.ink-button {
-  border: 1px solid rgba(var(--signal-rgb), 0.92);
-  background: transparent;
-  color: var(--signal);
+.atelier-card-soft {
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.08);
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.atelier-display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.atelier-kicker {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(var(--atelier-ink-rgb), 0.58);
+}
+
+.atelier-button,
+.atelier-ghost-button {
+  border-radius: 18px;
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.12);
   transition:
-    background-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
 }
 
-.ink-button:hover:not(:disabled) {
-  background: var(--signal);
-  color: var(--abyss);
-  box-shadow: 0 0 24px rgba(var(--signal-rgb), 0.12);
+.atelier-button {
+  background: var(--atelier-ink);
+  color: var(--atelier-paper-strong);
+  box-shadow: 0 12px 28px rgba(var(--atelier-ink-rgb), 0.16);
 }
 
-.ink-button:active:not(:disabled) {
-  transform: translateY(1px);
+.atelier-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(var(--atelier-ink-rgb), 0.92);
+  box-shadow: 0 16px 34px rgba(var(--atelier-ink-rgb), 0.18);
 }
 
-.wave-bar {
-  background: var(--signal);
-  transform-origin: center;
-  box-shadow: 0 0 14px rgba(var(--signal-rgb), 0.22);
+.atelier-ghost-button {
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--atelier-ink);
 }
 
-.wave-grid {
+.atelier-ghost-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.76);
+  border-color: rgba(var(--atelier-ink-rgb), 0.18);
+}
+
+.atelier-wave-grid {
   background-image:
-    linear-gradient(to right, rgba(var(--signal-rgb), 0.08) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(var(--signal-rgb), 0.06) 1px, transparent 1px);
+    linear-gradient(to right, rgba(var(--atelier-ink-rgb), 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(var(--atelier-ink-rgb), 0.05) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-.wave-bar-active {
-  animation: wave-flicker 1.8s ease-in-out infinite;
+.atelier-wave-bar {
+  transform-origin: center;
+  box-shadow: 0 0 14px rgba(var(--atelier-ink-rgb), 0.08);
 }
 
-.avatar-ring {
-  box-shadow:
-    inset 0 0 24px rgba(var(--signal-rgb), 0.06),
-    0 0 28px rgba(var(--signal-rgb), 0.06);
+.atelier-wave-bar-active {
+  animation: atelier-wave-flicker 1.9s ease-in-out infinite;
 }
 
-.avatar-ring-active {
-  animation: ring-pulse 2.2s ease-in-out infinite;
+.atelier-scroll-button {
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.12);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--atelier-ink);
 }
 
-.avatar-core {
-  background: var(--signal);
-  box-shadow: 0 0 26px rgba(var(--signal-rgb), 0.5);
+.atelier-scroll-button:hover {
+  background: rgba(var(--atelier-terracotta-rgb), 0.12);
+  color: var(--atelier-ink);
 }
 
-@keyframes wave-flicker {
+@keyframes atelier-wave-flicker {
   0%, 100% {
+    transform: scaleY(0.78);
+    opacity: 0.76;
+  }
+
+  50% {
     transform: scaleY(1);
-    opacity: 0.72;
-  }
-
-  50% {
-    transform: scaleY(0.66);
     opacity: 1;
   }
 }
 
-@keyframes ring-pulse {
-  0%, 100% {
-    opacity: 0.7;
-    box-shadow:
-      inset 0 0 24px rgba(var(--signal-rgb), 0.06),
-      0 0 28px rgba(var(--signal-rgb), 0.06);
-  }
-
-  50% {
-    opacity: 1;
-    box-shadow:
-      inset 0 0 48px rgba(var(--signal-rgb), 0.12),
-      0 0 56px rgba(var(--signal-rgb), 0.14);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

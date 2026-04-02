@@ -64,6 +64,7 @@ export const PERSONA_VARIANTS = Object.keys(sources) as (keyof typeof sources)[]
 
 const getCurrentTheme = (): "light" | "dark" => {
   if (typeof window !== "undefined") {
+    if (document.documentElement.classList.contains("light")) return "light";
     if (document.documentElement.classList.contains("dark")) return "dark";
     if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
   }

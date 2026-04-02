@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Check, Copy, Download, Loader } from 'lucide-react';
+import { Check, Copy, Download, Loader, Maximize2 } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai/conversation';
 import { Message, MessageContent } from '@/components/ai/message';
@@ -65,12 +66,26 @@ function parseTurns(transcript: string): Turn[] {
   return turns;
 }
 
+const TAB_LABELS = {
+  bengali: 'Bangla',
+  english: 'English',
+} as const;
+
 export function TranscriptView({ transcript, className }: TranscriptViewProps) {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'bengali' | 'english'>('bengali');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const currentTranscript = transcript[activeTab];
+
+  const handleExpandClicked = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('transcript_detail', JSON.stringify({
+        bengali: transcript.bengali,
+        english: transcript.english,
+      }));
+    }
+  };
 
   const copy = useCallback(async () => {
     await navigator.clipboard.writeText(currentTranscript);
@@ -113,56 +128,83 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
   const firstSpeakerIndex = turns[0]?.speakerIndex ?? 0;
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
-      <div className="flex h-16 items-center justify-between border-b border-[rgba(255,230,0,0.72)] px-5">
-        <div className="flex min-w-0 items-center gap-3 text-xs tracking-[0.22em] text-[rgba(255,230,0,0.76)]">
-          <span className="font-semibold text-[rgba(255,230,0,0.96)]">TRANSCRIPT</span>
-          <span>{wordTotal} WORDS</span>
-          <span>{turns.length} TURNS</span>
+    <div className={cn('atelier-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[30px]', className)}>
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
+        <div className="min-w-0">
+          <div className="atelier-kicker">Transcript Output</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-[var(--atelier-ink)] sm:text-xl">Bilingual Transcript</h2>
+            <span className="rounded-full border border-[rgba(var(--atelier-teal-rgb),0.16)] bg-[rgba(var(--atelier-teal-rgb),0.08)] px-3 py-1 text-[11px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
+              {wordTotal} words
+            </span>
+            <span className="rounded-full border border-[rgba(var(--atelier-cobalt-rgb),0.16)] bg-[rgba(var(--atelier-cobalt-rgb),0.08)] px-3 py-1 text-[11px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
+              {turns.length} turns
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/transcript-detail?words=${wordTotal}&turns=${turns.length}`}
+            onClick={handleExpandClicked}
+            className="atelier-ghost-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em]"
+            title="Open fullscreen transcript"
+          >
+            <Maximize2 size={13} />
+            <span>Expand</span>
+          </Link>
+
           <button
             onClick={downloadWord}
             disabled={isDownloading}
-            className="ink-button inline-flex h-10 items-center gap-2 px-3 text-[10px] font-semibold tracking-[0.24em] disabled:opacity-35"
+            className="atelier-ghost-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em] disabled:opacity-50"
             title="Download as Word document"
             type="button"
           >
-            {isDownloading ? <Loader size={12} className="animate-spin" /> : <Download size={12} />}
-            <span>{isDownloading ? 'SAVING' : 'DOCX'}</span>
+            {isDownloading ? <Loader size={13} className="animate-spin" /> : <Download size={13} />}
+            <span>{isDownloading ? 'Saving' : 'Docx'}</span>
           </button>
 
           <button
             onClick={copy}
-            className="ink-button inline-flex h-10 items-center gap-2 px-3 text-[10px] font-semibold tracking-[0.24em]"
+            className="atelier-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em]"
             type="button"
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? 'COPIED' : 'COPY'}</span>
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-[rgba(255,230,0,0.72)] px-5 py-3">
-        {(['bengali', 'english'] as const).map((lang) => (
-          <button
-            key={lang}
-            onClick={() => setActiveTab(lang)}
-            className={cn(
-              'ink-button h-10 px-4 text-[10px] font-semibold tracking-[0.26em]',
-              activeTab === lang && 'bg-[var(--signal)] text-[var(--abyss)]',
-            )}
-            type="button"
-          >
-            {lang === 'bengali' ? 'BENGALI' : 'ENGLISH'}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-3 sm:px-5">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(255,255,255,0.46)] p-1">
+          {(['bengali', 'english'] as const).map((lang) => (
+            <button
+              key={lang}
+              onClick={() => setActiveTab(lang)}
+              className={cn(
+                'rounded-full px-4 py-2 text-[11px] font-semibold tracking-[0.16em] transition-colors',
+                activeTab === lang
+                  ? 'bg-[rgba(var(--atelier-terracotta-rgb),0.92)] text-[var(--atelier-paper-strong)]'
+                  : 'text-[rgba(var(--atelier-ink-rgb),0.62)] hover:bg-[rgba(255,255,255,0.6)]',
+              )}
+              type="button"
+            >
+              {TAB_LABELS[lang]}
+            </button>
+          ))}
+        </div>
+
+        <div className="atelier-kicker">Scrollable transcript only. Page stays fixed.</div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0.14))]">
+        <div className="atelier-wave-grid pointer-events-none absolute inset-0 opacity-35" />
+        <div className="pointer-events-none absolute left-4 top-4 h-16 w-20 rounded-[22px] bg-[rgba(var(--atelier-gold-rgb),0.16)]" />
+        <div className="pointer-events-none absolute bottom-4 right-4 h-14 w-[72px] rounded-[20px] bg-[rgba(var(--atelier-cobalt-rgb),0.12)]" />
+
         <Conversation className="absolute inset-0">
-          <ConversationContent className="px-5 py-5">
+          <ConversationContent className="px-4 py-4 sm:px-5 sm:py-5">
             {turns.map((turn) => (
               <Message
                 key={turn.id}
@@ -176,7 +218,7 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
               </Message>
             ))}
           </ConversationContent>
-          <ConversationScrollButton className="ink-button h-10 w-10 rounded-none border-[rgba(255,230,0,0.72)] bg-[var(--abyss)] text-[var(--signal)] hover:bg-[var(--signal)] hover:text-[var(--abyss)]" />
+          <ConversationScrollButton className="atelier-scroll-button h-10 w-10 rounded-full shadow-[0_16px_34px_rgba(41,25,18,0.15)]" />
         </Conversation>
       </div>
     </div>
