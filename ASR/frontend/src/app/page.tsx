@@ -563,6 +563,7 @@ export default function HomePage() {
           isOpen={isTranscriptDetailOpen}
           onClose={() => setIsTranscriptDetailOpen(false)}
           transcript={transcript}
+          audioUrl={file ? URL.createObjectURL(file) : undefined}
         />
       )}
     </main>

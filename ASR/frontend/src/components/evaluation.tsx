@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Loader, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -77,10 +77,58 @@ function ScoreIndicator({ score }: { score: number }) {
   );
 }
 
+// Generate hash of transcript for cache key
+function generateTranscriptHash(transcript: { bengali: string; english: string }): string {
+  const combined = transcript.bengali + transcript.english;
+  let hash = 0;
+  for (let i = 0; i < combined.length; i++) {
+    const char = combined.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// Get cached evaluation from localStorage
+function getCachedEvaluation(transcript: { bengali: string; english: string }): EvaluationData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const hash = generateTranscriptHash(transcript);
+    const cached = localStorage.getItem(`evaluation_${hash}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (error) {
+    console.error('Failed to load cached evaluation:', error);
+    return null;
+  }
+}
+
+// Save evaluation to localStorage
+function cacheEvaluation(transcript: { bengali: string; english: string }, data: EvaluationData): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const hash = generateTranscriptHash(transcript);
+    localStorage.setItem(`evaluation_${hash}`, JSON.stringify(data));
+  } catch (error) {
+    console.error('Failed to cache evaluation:', error);
+  }
+}
+
 export function EvaluationComponent({ transcript }: EvaluationComponentProps) {
   const [evaluation, setEvaluation] = useState<EvaluationData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Load cached evaluation on mount
+  useEffect(() => {
+    if (!isInitialized) {
+      const cached = getCachedEvaluation(transcript);
+      if (cached) {
+        setEvaluation(cached);
+      }
+      setIsInitialized(true);
+    }
+  }, [transcript, isInitialized]);
 
   const runEvaluation = useCallback(async () => {
     setIsLoading(true);
@@ -102,6 +150,8 @@ export function EvaluationComponent({ transcript }: EvaluationComponentProps) {
 
       const data = await response.json();
       setEvaluation(data);
+      // Cache the evaluation
+      cacheEvaluation(transcript, data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during evaluation');
       console.error('Evaluation error:', err);

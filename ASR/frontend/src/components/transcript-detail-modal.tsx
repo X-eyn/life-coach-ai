@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { X, Copy, Download, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EvaluationComponent } from './evaluation';
+import { MediaPlayer } from './media-player';
 
 interface TranscriptDetailModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface TranscriptDetailModalProps {
     bengali: string;
     english: string;
   };
+  audioUrl?: string;
 }
 
 interface Turn {
@@ -77,7 +79,7 @@ function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-export function TranscriptDetailModal({ isOpen, onClose, transcript }: TranscriptDetailModalProps) {
+export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }: TranscriptDetailModalProps) {
   const [activeLanguageTab, setActiveLanguageTab] = useState<'bengali' | 'english'>('bengali');
   const [activeMainTab, setActiveMainTab] = useState<'main' | 'evaluations'>('main');
   const [copied, setCopied] = useState(false);
@@ -159,10 +161,20 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript }: Transcrip
       >
         <div className="w-full max-w-4xl max-h-[90vh] rounded-[32px] atelier-panel shadow-2xl flex flex-col overflow-hidden">
           {/* Header with Close Button */}
-          <div className="flex items-center justify-between gap-4 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-6 py-5 flex-shrink-0">
-            <div>
+          <div className="flex items-start justify-between gap-4 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-6 py-5 flex-shrink-0">
+            <div className="flex-1">
               <div className="atelier-kicker">Transcript Output</div>
-              <h2 className="text-lg font-semibold text-[var(--atelier-ink)] sm:text-xl mt-2">Bilingual Transcript</h2>
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                <h2 className="text-lg font-semibold text-[var(--atelier-ink)] sm:text-xl">Bilingual Transcript</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-[rgba(var(--atelier-teal-rgb),0.16)] bg-[rgba(var(--atelier-teal-rgb),0.08)] px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
+                    {wordTotal} words
+                  </span>
+                  <span className="rounded-full border border-[rgba(var(--atelier-cobalt-rgb),0.16)] bg-[rgba(var(--atelier-cobalt-rgb),0.08)] px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
+                    {turns.length} turns
+                  </span>
+                </div>
+              </div>
             </div>
             <button
               onClick={handleClose}
@@ -171,16 +183,6 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript }: Transcrip
             >
               <X size={24} />
             </button>
-          </div>
-
-          {/* Metadata Pills */}
-          <div className="flex flex-wrap items-center gap-3 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-6 py-4 flex-shrink-0">
-            <span className="rounded-full border border-[rgba(var(--atelier-teal-rgb),0.16)] bg-[rgba(var(--atelier-teal-rgb),0.08)] px-3 py-1 text-[11px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
-              {wordTotal} words
-            </span>
-            <span className="rounded-full border border-[rgba(var(--atelier-cobalt-rgb),0.16)] bg-[rgba(var(--atelier-cobalt-rgb),0.08)] px-3 py-1 text-[11px] font-semibold tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.76)]">
-              {turns.length} turns
-            </span>
           </div>
 
           {/* Tabs and Controls */}
@@ -287,12 +289,8 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript }: Transcrip
             )}
           </div>
 
-          {/* Footer Info */}
-          <div className="border-t border-[rgba(var(--atelier-ink-rgb),0.08)] px-6 py-3 flex-shrink-0 bg-[rgba(var(--atelier-paper-strong-rgb),0.4)]">
-            <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.56)] tracking-[0.12em] font-medium">
-              Press Escape or click outside to close
-            </p>
-          </div>
+          {/* Media Player */}
+          <MediaPlayer audioUrl={audioUrl} />
         </div>
       </div>
     </>
