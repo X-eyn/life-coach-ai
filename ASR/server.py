@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from asr_google import transcribe
+from evaluation import evaluate_transcript
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,6 +126,37 @@ def download_word():
         )
     except Exception as exc:
         logger.exception("Word download generation failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/evaluate", methods=["POST"])
+def evaluate():
+    """Evaluate a transcript based on teacher-student interaction criteria."""
+    try:
+        logger.info("Incoming evaluation request")
+        data = request.get_json()
+        
+        if not data:
+            logger.warning("Evaluation request missing JSON body")
+            return jsonify({"error": "No data provided"}), 400
+        
+        transcript = data.get("transcript", "")
+        if not transcript:
+            logger.warning("Evaluation request missing transcript")
+            return jsonify({"error": "No transcript provided"}), 400
+        
+        logger.info("Starting transcript evaluation")
+        result = evaluate_transcript(transcript)
+        
+        if not result.get("success"):
+            logger.error("Evaluation failed: %s", result.get("error"))
+            return jsonify({"error": result.get("error")}), 500
+        
+        logger.info("Evaluation completed successfully")
+        return jsonify(result.get("data"))
+        
+    except Exception as exc:
+        logger.exception("Evaluation endpoint error")
         return jsonify({"error": str(exc)}), 500
 
 
