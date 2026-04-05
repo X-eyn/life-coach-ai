@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { Check, Copy, Download, Loader, Maximize2 } from 'lucide-react';
-import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai/conversation';
 import { Message, MessageContent } from '@/components/ai/message';
@@ -13,6 +12,7 @@ interface TranscriptViewProps {
     english: string;
   };
   className?: string;
+  onExpand?: () => void;
 }
 
 interface Turn {
@@ -71,21 +71,12 @@ const TAB_LABELS = {
   english: 'English',
 } as const;
 
-export function TranscriptView({ transcript, className }: TranscriptViewProps) {
+export function TranscriptView({ transcript, className, onExpand }: TranscriptViewProps) {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'bengali' | 'english'>('bengali');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const currentTranscript = transcript[activeTab];
-
-  const handleExpandClicked = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('transcript_detail', JSON.stringify({
-        bengali: transcript.bengali,
-        english: transcript.english,
-      }));
-    }
-  };
 
   const copy = useCallback(async () => {
     await navigator.clipboard.writeText(currentTranscript);
@@ -144,15 +135,15 @@ export function TranscriptView({ transcript, className }: TranscriptViewProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/transcript-detail?words=${wordTotal}&turns=${turns.length}`}
-            onClick={handleExpandClicked}
+          <button
+            onClick={onExpand}
             className="atelier-ghost-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em]"
             title="Open fullscreen transcript"
+            type="button"
           >
             <Maximize2 size={13} />
             <span>Expand</span>
-          </Link>
+          </button>
 
           <button
             onClick={downloadWord}

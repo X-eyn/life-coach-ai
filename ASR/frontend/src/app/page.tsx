@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEv
 import { AlertTriangle, Upload, X } from "lucide-react";
 import { Persona, type PersonaState } from "@/components/persona";
 import { TranscriptView } from "@/components/transcript-view";
+import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
 import { LiveWaveform } from "@/components/ui/live-waveform";
 import { cn } from "@/lib/utils";
 
@@ -231,6 +232,7 @@ export default function HomePage() {
     sampleRate: null,
   });
   const [isReadingAudio, setIsReadingAudio] = useState(false);
+  const [isTranscriptDetailOpen, setIsTranscriptDetailOpen] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const isWorking = appState === "uploading" || appState === "processing";
@@ -276,6 +278,20 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [file]);
+
+  // Handle escape key to close modal
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isTranscriptDetailOpen) {
+        setIsTranscriptDetailOpen(false);
+      }
+    };
+
+    if (isTranscriptDetailOpen) {
+      window.addEventListener("keydown", handleEscape);
+      return () => window.removeEventListener("keydown", handleEscape);
+    }
+  }, [isTranscriptDetailOpen]);
 
   const transcribeFile = useCallback(async (targetFile: File) => {
     setError("");
@@ -495,7 +511,11 @@ export default function HomePage() {
         </section>
 
         {hasTranscript ? (
-          <TranscriptView transcript={transcript} className="min-h-0" />
+          <TranscriptView 
+            transcript={transcript} 
+            className="min-h-0"
+            onExpand={() => setIsTranscriptDetailOpen(true)}
+          />
         ) : (
           <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
             <div className="border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
@@ -536,6 +556,15 @@ export default function HomePage() {
           </section>
         )}
       </div>
+
+      {/* Transcript Detail Modal */}
+      {transcript && (
+        <TranscriptDetailModal
+          isOpen={isTranscriptDetailOpen}
+          onClose={() => setIsTranscriptDetailOpen(false)}
+          transcript={transcript}
+        />
+      )}
     </main>
   );
 }
