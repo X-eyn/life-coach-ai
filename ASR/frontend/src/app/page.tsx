@@ -461,51 +461,24 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
-          <div className="border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
-            <div className="atelier-kicker">Live Stage</div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <h2 className="atelier-display text-[clamp(1.9rem,3vw,2.8rem)] leading-[0.92] text-[var(--atelier-ink)]">
-                Persona
-              </h2>
-              <div className={cn("rounded-full border px-4 py-2 text-[11px] font-semibold tracking-[0.16em]", stagePill)}>
-                {personaState.toUpperCase()}
-              </div>
-            </div>
-          </div>
-
+        <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-[rgba(var(--atelier-ink-rgb),0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.3),rgba(255,255,255,0.08))]">
-              <div className="atelier-wave-grid absolute inset-0 opacity-30" />
-              {MOSAIC_TILES.map((tile, index) => (
-                <div key={index} className={cn("absolute", tile)} />
-              ))}
-              <div className="absolute inset-[14%] rounded-full border border-[rgba(var(--atelier-ink-rgb),0.06)]" />
-              <div className="absolute inset-[27%] rounded-full border border-[rgba(var(--atelier-ink-rgb),0.04)]" />
-
-              <div className="relative z-10 flex flex-col items-center gap-3">
+            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[28px]">
+              <div className="relative z-10 flex flex-col items-center gap-6">
                 <div className="rounded-[24px] p-2">
-                  <Persona variant="halo" state={personaState} className="size-[160px] sm:size-[200px] lg:size-[190px] xl:size-[240px] 2xl:size-[280px]" />
-                </div>
-                <div className={cn("rounded-full border px-4 py-2 text-[10px] font-semibold tracking-[0.16em]", stagePill)}>
-                  {STATUS[appState]}
+                  <Persona variant="halo" state={personaState} className="size-[280px] sm:size-[320px] lg:size-[360px] xl:size-[420px] 2xl:size-[500px]" />
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-2 sm:gap-3 xl:grid-cols-2">
-              <div className="rounded-[18px] border border-[rgba(var(--atelier-teal-rgb),0.16)] bg-[rgba(var(--atelier-teal-rgb),0.08)] p-3 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.72)]">
-                {stageCopy.note}
-              </div>
-              <div className="atelier-card rounded-[18px] p-3">
-                <div className="atelier-kicker text-[9px]">Session</div>
-                <div className="mt-1 text-sm font-semibold text-[var(--atelier-ink)]">{sessionName}</div>
-                <p className="mt-1 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)]">
-                  {hasTranscript
-                    ? `${totalTranscriptWords} words in transcript.`
-                    : "Output ready when backend responds."}
-                </p>
-              </div>
+            <div className="atelier-card rounded-[18px] p-3">
+              <div className="atelier-kicker text-[9px]">Session</div>
+              <div className="mt-1 text-sm font-semibold text-[var(--atelier-ink)]">{sessionName}</div>
+              <p className="mt-1 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)]">
+                {hasTranscript
+                  ? `${totalTranscriptWords} words in transcript.`
+                  : "Output ready when backend responds."}
+              </p>
             </div>
           </div>
         </section>
@@ -546,11 +519,6 @@ export default function HomePage() {
                       ? "Composing transcript."
                       : "Waiting for audio."}
                 </div>
-                <p className="mt-4 text-sm leading-6 text-[rgba(var(--atelier-ink-rgb),0.66)]">
-                  {appState === "error"
-                    ? error || "The backend did not return usable transcript data."
-                    : "This panel switches into the full bilingual transcript viewer as soon as the session is processed."}
-                </p>
               </div>
             </div>
           </section>

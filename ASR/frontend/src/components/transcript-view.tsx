@@ -120,7 +120,7 @@ export function TranscriptView({ transcript, className, onExpand }: TranscriptVi
 
   return (
     <div className={cn('atelier-panel flex h-full min-h-0 flex-col overflow-hidden rounded-[30px]', className)}>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
+      <div className="flex items-start justify-between gap-4 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
         <div className="min-w-0">
           <div className="atelier-kicker">Transcript Output</div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -134,7 +134,7 @@ export function TranscriptView({ transcript, className, onExpand }: TranscriptVi
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={onExpand}
             className="atelier-ghost-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em]"
@@ -145,25 +145,25 @@ export function TranscriptView({ transcript, className, onExpand }: TranscriptVi
             <span>Expand</span>
           </button>
 
-          <button
-            onClick={downloadWord}
-            disabled={isDownloading}
-            className="atelier-ghost-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em] disabled:opacity-50"
-            title="Download as Word document"
-            type="button"
-          >
-            {isDownloading ? <Loader size={13} className="animate-spin" /> : <Download size={13} />}
-            <span>{isDownloading ? 'Saving' : 'Docx'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={downloadWord}
+              disabled={isDownloading}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] transition-colors hover:bg-[rgba(var(--atelier-ink-rgb),0.04)] disabled:opacity-50"
+              title="Download as Word document"
+              type="button"
+            >
+              {isDownloading ? <Loader size={16} className="animate-spin" /> : <Download size={16} />}
+            </button>
 
-          <button
-            onClick={copy}
-            className="atelier-button inline-flex h-10 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.14em]"
-            type="button"
-          >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
+            <button
+              onClick={copy}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(var(--atelier-ink-rgb),0.02)] transition-colors hover:bg-[rgba(var(--atelier-ink-rgb),0.06)]"
+              type="button"
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -189,12 +189,8 @@ export function TranscriptView({ transcript, className, onExpand }: TranscriptVi
         <div className="atelier-kicker">Scrollable transcript only. Page stays fixed.</div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0.14))]">
-        <div className="atelier-wave-grid pointer-events-none absolute inset-0 opacity-35" />
-        <div className="pointer-events-none absolute left-4 top-4 h-16 w-20 rounded-[22px] bg-[rgba(var(--atelier-gold-rgb),0.16)]" />
-        <div className="pointer-events-none absolute bottom-4 right-4 h-14 w-[72px] rounded-[20px] bg-[rgba(var(--atelier-cobalt-rgb),0.12)]" />
-
-        <Conversation className="absolute inset-0">
+      <div className="relative min-h-0 flex-1 overflow-y-auto bg-transparent">
+        <Conversation className="relative">
           <ConversationContent className="px-4 py-4 sm:px-5 sm:py-5">
             {turns.map((turn) => (
               <Message

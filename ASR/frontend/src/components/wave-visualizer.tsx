@@ -19,13 +19,31 @@ interface Layer {
   phase: number;
   opacity: number;
   fill: boolean;
+  randomOffset: number;
+  randomFreqModulator: number;
+  randomSpeedVariation: number;
 }
 
-const makeLayers = (): Layer[] => [
-  { amplitude: 0.42, frequency: 1.6, speed: 0.90, phase: 0.0, opacity: 1.00, fill: true  },
-  { amplitude: 0.22, frequency: 3.1, speed: 1.55, phase: 1.8, opacity: 0.40, fill: false },
-  { amplitude: 0.13, frequency: 5.4, speed: 2.30, phase: 3.2, opacity: 0.18, fill: false },
-];
+const makeLayers = (): Layer[] => {
+  const layers: Layer[] = [];
+  const layerCount = 9;
+  
+  for (let i = 0; i < layerCount; i++) {
+    layers.push({
+      amplitude: 0.1 + Math.random() * 0.5,
+      frequency: 0.5 + Math.random() * 7.5,
+      speed: 0.3 + Math.random() * 3.5,
+      phase: Math.random() * Math.PI * 2,
+      opacity: 0.2 + Math.random() * 0.8,
+      fill: i === 0,
+      randomOffset: Math.random(),
+      randomFreqModulator: Math.random(),
+      randomSpeedVariation: Math.random(),
+    });
+  }
+  
+  return layers;
+};
 
 export function WaveVisualizer({
   state,
@@ -86,17 +104,50 @@ export function WaveVisualizer({
       const H   = canvas.height / dpr;
       const mid = H / 2;
       ctx.clearRect(0, 0, W, H);
-      layersRef.current.forEach((layer) => {
+      
+      layersRef.current.forEach((layer, layerIndex) => {
         layer.phase += layer.speed * dt;
-        const amp = mid * 0.78 * layer.amplitude * env;
+        
+        // Add random variations that change every frame
+        const frameRandom = Math.sin(ts * 0.001 + layerIndex * 10.5) * 0.5 + 0.5;
+        const ampRandom = Math.sin(ts * 0.0008 + layerIndex * 7.3) * 0.5 + 0.5;
+        const freqRandom = Math.sin(ts * 0.0012 + layerIndex * 13.7) * 0.5 + 0.5;
+        const phaseJitter = Math.sin(ts * 0.0015 + layerIndex * 5.1) * Math.PI;
+        
+        // Dramatically vary amplitude
+        const baseAmp = mid * 0.78 * layer.amplitude * env;
+        const amp = baseAmp * (0.5 + ampRandom * 1.0);
+        
+        // Vary frequency significantly
+        const baseFreq = layer.frequency * (0.6 + freqRandom * 1.8);
+        
         const pts: [number, number][] = [];
+        
         for (let x = 0; x <= W; x++) {
-          pts.push([x, mid + Math.sin((x / W) * layer.frequency * Math.PI * 2 + layer.phase) * amp]);
+          // Main wave with jittered phase
+          const mainWave = Math.sin((x / W) * baseFreq * Math.PI * 2 + layer.phase + phaseJitter) * amp;
+          
+          // Add varying harmonics
+          const harm1Strength = Math.sin(ts * 0.0006 + x * 0.001 + layerIndex) * 0.3 + 0.2;
+          const harmonic1 = Math.sin((x / W) * baseFreq * 0.3 * Math.PI * 2 + layer.phase * 0.5) * amp * harm1Strength;
+          
+          const harm2Strength = Math.sin(ts * 0.0009 + x * 0.002 + layerIndex * 2) * 0.3 + 0.2;
+          const harmonic2 = Math.sin((x / W) * baseFreq * 2.1 * Math.PI * 2 + layer.phase * 1.5) * amp * harm2Strength;
+          
+          const harm3Strength = Math.sin(ts * 0.0007 + x * 0.003 + layerIndex * 3) * 0.2 + 0.1;
+          const harmonic3 = Math.sin((x / W) * baseFreq * 0.7 * Math.PI * 2 + layer.phase * 0.3) * amp * harm3Strength;
+          
+          // Random noise that varies by position and time
+          const randomNoise = (Math.sin(x * Math.PI + ts * 0.002 + layerIndex * 100) * 0.5 + Math.cos(x + ts * 0.003 + layerIndex * 50) * 0.5) * amp * 0.2;
+          
+          const yValue = mid + mainWave + harmonic1 + harmonic2 + harmonic3 + randomNoise;
+          pts.push([x, yValue]);
         }
+        
         if (layer.fill) {
-          const grad = ctx.createLinearGradient(0, mid - amp, 0, H);
-          grad.addColorStop(0,   `rgba(${r},${g},${b},${0.18 * env})`);
-          grad.addColorStop(0.6, `rgba(${r},${g},${b},${0.04 * env})`);
+          const grad = ctx.createLinearGradient(0, mid - amp * 1.5, 0, H);
+          grad.addColorStop(0,   `rgba(${r},${g},${b},${0.2 * env * (0.5 + frameRandom)})`);
+          grad.addColorStop(0.5, `rgba(${r},${g},${b},${0.05 * env})`);
           grad.addColorStop(1,   `rgba(${r},${g},${b},0)`);
           ctx.beginPath();
           pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
@@ -104,10 +155,14 @@ export function WaveVisualizer({
           ctx.fillStyle = grad;
           ctx.fill();
         }
+        
         ctx.beginPath();
-        ctx.lineWidth   = lineWidth;
-        ctx.strokeStyle = `rgba(${r},${g},${b},${layer.opacity * Math.max(env, 0.12)})`;
-        if (layer.fill && isActive) { ctx.shadowColor = color; ctx.shadowBlur = 18 * env; }
+        ctx.lineWidth   = lineWidth * (0.6 + frameRandom * 0.8);
+        ctx.strokeStyle = `rgba(${r},${g},${b},${layer.opacity * Math.max(env, 0.12) * (0.7 + ampRandom * 0.6)})`;
+        if (layer.fill && isActive) { 
+          ctx.shadowColor = color; 
+          ctx.shadowBlur = 8 + 24 * env * (0.5 + frameRandom); 
+        }
         pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
         ctx.stroke();
         ctx.shadowBlur = 0;
