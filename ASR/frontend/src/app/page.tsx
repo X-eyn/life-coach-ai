@@ -262,6 +262,7 @@ export default function HomePage() {
   });
   const [isReadingAudio, setIsReadingAudio] = useState(false);
   const [isTranscriptDetailOpen, setIsTranscriptDetailOpen] = useState(false);
+  const [initialTurnIndex, setInitialTurnIndex] = useState<number | undefined>(undefined);
   const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
   const [recentTranscriptions, setRecentTranscriptions] = useState<RecentTranscription[]>([]);
 
@@ -628,7 +629,8 @@ export default function HomePage() {
           <TranscriptView
             transcript={transcript}
             className="min-h-0 atelier-enter"
-            onExpand={() => setIsTranscriptDetailOpen(true)}
+            onExpand={() => { setInitialTurnIndex(undefined); setIsTranscriptDetailOpen(true); }}
+            onExpandToTurn={(i) => { setInitialTurnIndex(i); setIsTranscriptDetailOpen(true); }}
           />
         ) : (
           <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
@@ -673,6 +675,7 @@ export default function HomePage() {
           onClose={() => setIsTranscriptDetailOpen(false)}
           transcript={transcript}
           audioUrl={file ? URL.createObjectURL(file) : undefined}
+          initialTurnIndex={initialTurnIndex}
         />
       )}
     </main>

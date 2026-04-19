@@ -14,6 +14,7 @@ interface TranscriptDetailModalProps {
     english: string;
   };
   audioUrl?: string;
+  initialTurnIndex?: number;
 }
 
 interface Turn {
@@ -79,7 +80,7 @@ function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }: TranscriptDetailModalProps) {
+export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, initialTurnIndex }: TranscriptDetailModalProps) {
   const [activeLanguageTab, setActiveLanguageTab] = useState<'bengali' | 'english'>('bengali');
   const [activeMainTab, setActiveMainTab] = useState<'main' | 'evaluations'>('main');
   const [copied, setCopied] = useState(false);
@@ -88,6 +89,7 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
   const [visible, setVisible] = useState(false);
   const raf1Ref = useRef<number>(0);
   const raf2Ref = useRef<number>(0);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Double-RAF trick: ensure the hidden initial state is painted before we transition to visible.
   // A single useEffect without rAF can fire before the first paint, skipping the animation.
@@ -107,6 +109,16 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
     // 280ms matches the CSS transition duration — let the exit animation finish first
     setTimeout(onClose, 280);
   }, [onClose]);
+
+  // Scroll to a specific turn after the modal opens
+  useEffect(() => {
+    if (!visible || initialTurnIndex == null) return;
+    const timer = setTimeout(() => {
+      const el = contentRef.current?.querySelector(`[data-turn-index="${initialTurnIndex}"]`);
+      if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [visible, initialTurnIndex]);
 
   const currentTranscript = transcript[activeLanguageTab];
   const turns = useMemo(() => parseTurns(currentTranscript), [currentTranscript]);
@@ -269,14 +281,14 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
           </div>
 
           {/* Transcript Content */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+          <div ref={contentRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
             {activeMainTab === 'main' ? (
               <div className="space-y-6">
                 {turns.length > 0 ? (
                   turns.map((turn, index) => {
                     const speakerColor = SPEAKER_COLORS[turn.speakerIndex as keyof typeof SPEAKER_COLORS] || SPEAKER_COLORS[0];
                     return (
-                      <div key={turn.id} className="group">
+                      <div key={turn.id} data-turn-index={index} className="group">
                         <div className="flex items-baseline gap-3 mb-2">
                           <div
                             className={cn('w-2 h-2 rounded-full flex-shrink-0 mt-1', speakerColor.dot)}

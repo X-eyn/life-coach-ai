@@ -142,6 +142,40 @@ button {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+/* Transcript panel — primary surface, elevated above the input panels */
+.atelier-transcript-panel {
+  min-width: 0;
+  border: 1px solid rgba(var(--atelier-ink-rgb), 0.09);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.6)),
+    rgba(var(--atelier-paper-rgb), 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 24px 72px rgba(41, 25, 18, 0.15),
+    0 4px 8px rgba(41, 25, 18, 0.05);
+}
+
+/* Scroll-region: soft edge fade using CSS mask-image — no overlay div needed */
+.atelier-scroll-region {
+  overflow: hidden;
+  /* Fades only the ~14px edge; matches ConversationContent py-4 padding so
+     the first bubble is never clipped when scroll is at the top. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 14px,
+    black calc(100% - 14px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 14px,
+    black calc(100% - 14px),
+    transparent 100%
+  );
+}
+
 .atelier-card {
   border: 1px solid rgba(var(--atelier-ink-rgb), 0.12);
   background: rgba(255, 255, 255, 0.58);
