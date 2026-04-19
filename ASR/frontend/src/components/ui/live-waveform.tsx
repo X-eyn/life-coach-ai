@@ -158,6 +158,7 @@ export function LiveWaveform({
 }: LiveWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const rafRef = useRef<number>(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -166,6 +167,7 @@ export function LiveWaveform({
   const streamRef = useRef<MediaStream | null>(null);
   const frequencyDataRef = useRef<FrequencyData | null>(null);
   const historyRef = useRef<number[]>([]);
+  const targetSamplesRef = useRef<number[]>([]);
   const renderedSamplesRef = useRef<number[]>([]);
   const lastUpdateRef = useRef<number>(0);
 
@@ -209,10 +211,11 @@ export function LiveWaveform({
       canvas.style.width = `${width}px`;
       canvas.style.height = `${heightPx}px`;
 
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.scale(dpr, dpr);
+      // Cache the context — getContext() on every RAF frame is wasteful
+      ctxRef.current = canvas.getContext("2d");
+      if (ctxRef.current) {
+        ctxRef.current.setTransform(1, 0, 0, 1, 0, 0);
+        ctxRef.current.scale(dpr, dpr);
       }
     };
 
@@ -290,6 +293,7 @@ export function LiveWaveform({
 
   useEffect(() => {
     renderedSamplesRef.current = [];
+    targetSamplesRef.current = [];
     historyRef.current = [];
     lastUpdateRef.current = 0;
   }, [active, processing, mode, historySize]);
@@ -298,7 +302,8 @@ export function LiveWaveform({
     const draw = (timestamp: number) => {
       const container = containerRef.current;
       const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
+      // Use cached context — avoid per-frame getContext() lookup
+      const ctx = ctxRef.current ?? canvas?.getContext("2d");
 
       if (!container || !canvas || !ctx) {
         rafRef.current = requestAnimationFrame(draw);
@@ -311,6 +316,7 @@ export function LiveWaveform({
       const shouldUpdate = timestamp - lastUpdateRef.current >= updateRate || lastUpdateRef.current === 0;
       const phase = timestamp / 1000;
 
+      // Build new TARGET data on the throttled interval
       if (shouldUpdate) {
         let nextSamples: number[];
 
@@ -351,17 +357,26 @@ export function LiveWaveform({
           }
         }
 
-        const rendered = renderedSamplesRef.current;
-        if (rendered.length !== nextSamples.length) {
+        // Snap to new length instantly; otherwise update target for smooth tracking
+        if (targetSamplesRef.current.length !== nextSamples.length) {
+          targetSamplesRef.current = nextSamples.slice();
           renderedSamplesRef.current = nextSamples.slice();
         } else {
-          renderedSamplesRef.current = rendered.map((sample, index) => {
-            const target = nextSamples[index] ?? 0;
-            return sample + (target - sample) * 0.34;
-          });
+          targetSamplesRef.current = nextSamples;
         }
 
         lastUpdateRef.current = timestamp;
+      }
+
+      // Interpolate EVERY frame toward the latest target — this is what makes it silky
+      const targets = targetSamplesRef.current;
+      const rendered = renderedSamplesRef.current;
+      if (targets.length > 0 && rendered.length === targets.length) {
+        renderedSamplesRef.current = rendered.map((s, i) =>
+          s + ((targets[i] ?? 0) - s) * 0.13,
+        );
+      } else if (targets.length > 0 && rendered.length !== targets.length) {
+        renderedSamplesRef.current = targets.slice();
       }
 
       const samples = renderedSamplesRef.current;

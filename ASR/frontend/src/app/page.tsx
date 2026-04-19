@@ -1,12 +1,16 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { AlertTriangle, Upload, X } from "lucide-react";
+import { AlertTriangle, History, Upload, X } from "lucide-react";
 import { Persona, type PersonaState } from "@/components/persona";
 import { TranscriptView } from "@/components/transcript-view";
 import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
+import { RecentTranscriptionsPane, type RecentTranscription } from "@/components/recent-transcriptions-pane";
 import { LiveWaveform } from "@/components/ui/live-waveform";
 import { cn } from "@/lib/utils";
+
+const RECENT_STORAGE_KEY = "recent_transcriptions";
+const MAX_RECENT = 15;
 
 type AppState = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -108,6 +112,31 @@ function formatSessionName(file: File | null) {
 
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function generateSummary(transcript: TranscriptData, duration: number | null): { title: string; description: string } {
+  const bengaliWords = countWords(transcript.bengali);
+  const englishWords = countWords(transcript.english);
+  const totalWords = bengaliWords + englishWords;
+  
+  // Extract first 200 characters of english transcript for context
+  const snippetLength = 150;
+  const englishSnippet = transcript.english.substring(0, snippetLength).trim();
+  const hasMoreContent = transcript.english.length > snippetLength;
+  
+  // Generate contextual title and description
+  const durationStr = duration ? ` • ${fmtDuration(duration)}` : "";
+  const languageInfo = `Bilingual (Bengali & English)`;
+  
+  // Create a concise summary description
+  const description = `${languageInfo}${durationStr} • ${totalWords.toLocaleString()} words total
+  
+${englishSnippet}${hasMoreContent ? "..." : ""}`;
+
+  return {
+    title: `Session Summary`,
+    description: description,
+  };
 }
 
 function normalizeTranscriptPayload(payload: TranscriptResponse): TranscriptData | null {
@@ -233,10 +262,28 @@ export default function HomePage() {
   });
   const [isReadingAudio, setIsReadingAudio] = useState(false);
   const [isTranscriptDetailOpen, setIsTranscriptDetailOpen] = useState(false);
+  const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
+  const [recentTranscriptions, setRecentTranscriptions] = useState<RecentTranscription[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const audioPreviewRef = useRef<AudioPreview>({ duration: null, sampleRate: null });
   const isWorking = appState === "uploading" || appState === "processing";
   const hasTranscript = transcript !== null;
+
+  // Keep a ref to the latest audioPreview so transcribeFile can read it without a stale closure
+  useEffect(() => {
+    audioPreviewRef.current = audioPreview;
+  }, [audioPreview]);
+
+  // Load recent transcriptions from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(RECENT_STORAGE_KEY);
+      if (stored) setRecentTranscriptions(JSON.parse(stored) as RecentTranscription[]);
+    } catch {
+      // ignore corrupt data
+    }
+  }, []);
 
   const personaState: PersonaState =
     appState === "uploading"
@@ -293,6 +340,50 @@ export default function HomePage() {
     }
   }, [isTranscriptDetailOpen]);
 
+  const saveToRecent = useCallback((nextTranscript: TranscriptData, targetFile: File, duration: number | null) => {
+    const entry: RecentTranscription = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      fileName: formatSessionName(targetFile),
+      timestamp: Date.now(),
+      transcript: nextTranscript,
+      duration,
+      wordCount: countWords(`${nextTranscript.bengali} ${nextTranscript.english}`),
+    };
+
+    setRecentTranscriptions((prev) => {
+      // Remove any existing entry with the same file name so we don't duplicate
+      const deduped = prev.filter((t) => t.fileName !== entry.fileName);
+      const next = [entry, ...deduped].slice(0, MAX_RECENT);
+      try {
+        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage quota errors
+      }
+      return next;
+    });
+  }, []);
+
+  const deleteFromRecent = useCallback((id: string) => {
+    setRecentTranscriptions((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      try {
+        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
+  const loadFromRecent = useCallback((t: RecentTranscription) => {
+    setTranscript(t.transcript);
+    setFile(null);
+    setAudioPreview({ duration: t.duration, sampleRate: null });
+    setError("");
+    setAppState("done");
+    setIsSidePaneOpen(false);
+  }, []);
+
   const transcribeFile = useCallback(async (targetFile: File) => {
     setError("");
     setTranscript(null);
@@ -303,11 +394,12 @@ export default function HomePage() {
       const nextTranscript = await requestTranscription(targetFile);
       setTranscript(nextTranscript);
       setAppState("done");
+      saveToRecent(nextTranscript, targetFile, audioPreviewRef.current.duration);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message.toUpperCase() : "TRANSCRIPTION FAILED");
       setAppState("error");
     }
-  }, []);
+  }, [saveToRecent]);
 
   const acceptFile = useCallback((nextFile: File | null) => {
     if (!nextFile) return;
@@ -356,7 +448,39 @@ export default function HomePage() {
 
   return (
     <main className="h-screen overflow-hidden p-3 sm:p-4">
-      <div className="atelier-shell mx-auto grid h-full w-full max-w-[1680px] gap-4 rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[minmax(260px,0.82fr)_minmax(300px,0.96fr)_minmax(340px,1.08fr)]">
+      {/* Side-pane toggle tab — sits just outside the shell's left edge */}
+      <button
+        type="button"
+        onClick={() => setIsSidePaneOpen((v) => !v)}
+        className={cn(
+          "fixed left-3 top-1/2 z-50 -translate-y-1/2",
+          "flex h-14 w-8 flex-col items-center justify-center gap-1.5 rounded-[12px]",
+          "border border-[rgba(var(--atelier-ink-rgb),0.12)] backdrop-blur-[8px]",
+          "transition-colors duration-200",
+          isSidePaneOpen
+            ? "bg-[rgba(var(--atelier-terracotta-rgb),0.12)] border-[rgba(var(--atelier-terracotta-rgb),0.22)] text-[var(--atelier-terracotta)]"
+            : "bg-[rgba(255,255,255,0.72)] text-[rgba(var(--atelier-ink-rgb),0.55)] hover:bg-[rgba(255,255,255,0.9)] hover:text-[rgba(var(--atelier-ink-rgb),0.75)]",
+          "shadow-[0_4px_16px_rgba(13,18,32,0.1)]",
+        )}
+        aria-label={isSidePaneOpen ? "Close recent sessions" : "Open recent sessions"}
+      >
+        <History size={14} strokeWidth={2.2} />
+        {recentTranscriptions.length > 0 && !isSidePaneOpen && (
+          <span className="text-[9px] font-bold leading-none tracking-tight">
+            {recentTranscriptions.length > 9 ? "9+" : recentTranscriptions.length}
+          </span>
+        )}
+      </button>
+
+      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[minmax(260px,0.82fr)_minmax(300px,0.96fr)_minmax(340px,1.08fr)]">
+        {/* Collapsible recent transcriptions pane */}
+        <RecentTranscriptionsPane
+          isOpen={isSidePaneOpen}
+          onClose={() => setIsSidePaneOpen(false)}
+          transcriptions={recentTranscriptions}
+          onSelect={loadFromRecent}
+          onDelete={deleteFromRecent}
+        />
         <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
           <input
             ref={inputRef}
@@ -371,7 +495,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
-                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.2)] bg-transparent px-4 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.8)] transition-colors hover:border-[rgba(var(--atelier-ink-rgb),0.3)] hover:bg-[rgba(var(--atelier-ink-rgb),0.02)]"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.2)] bg-transparent px-4 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.8)] transition-[background-color,border-color,transform] duration-150 hover:border-[rgba(var(--atelier-ink-rgb),0.3)] hover:bg-[rgba(var(--atelier-ink-rgb),0.03)] active:scale-95"
               >
                 <Upload size={16} strokeWidth={2.1} />
                 <span>Select</span>
@@ -381,7 +505,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={clear}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(var(--atelier-ink-rgb),0.1)] text-[rgba(var(--atelier-ink-rgb),0.6)] transition-colors hover:bg-[rgba(var(--atelier-ink-rgb),0.15)]"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(var(--atelier-ink-rgb),0.1)] text-[rgba(var(--atelier-ink-rgb),0.6)] transition-[background-color,transform] duration-150 hover:bg-[rgba(var(--atelier-ink-rgb),0.15)] active:scale-90"
                   aria-label="Clear file"
                 >
                   <X size={18} strokeWidth={2} />
@@ -389,34 +513,13 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Waveform visualization area */}
-            <div
-              className={cn(
-                "relative flex min-h-0 flex-1 flex-col items-center justify-center rounded-[20px] transition-colors duration-200",
-                dragging && "bg-[rgba(var(--atelier-gold-rgb),0.1)]",
-              )}
-              onDrop={onDrop}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-            >
-              <LiveWaveform
-                processing={isWorking || isReadingAudio}
-                mode="static"
-                barWidth={6}
-                barHeight={12}
-                barGap={3}
-                barRadius={999}
-                height={140}
-                sensitivity={1.2}
-                fadeEdges
-                className="h-40 w-full text-[rgb(var(--atelier-terracotta-rgb))]"
-              />
-              <p className="mt-4 text-center text-sm font-medium text-[rgba(var(--atelier-ink-rgb),0.7)]">
-                {fileLabel}
-              </p>
+            {/* AI Persona Circle */}
+            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px]">
+              <div className="relative z-10 flex flex-col items-center gap-4">
+                <div className="rounded-[24px] p-2">
+                  <Persona variant="halo" state={personaState} className="size-[200px] sm:size-[220px] lg:size-[240px]" />
+                </div>
+              </div>
             </div>
 
             {/* Properties Grid */}
@@ -443,7 +546,7 @@ export default function HomePage() {
             </div>
 
             {error && (
-              <div className="flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-3 py-2 text-[rgba(var(--atelier-ink-rgb),0.8)]">
+              <div className="atelier-enter flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-3 py-2 text-[rgba(var(--atelier-ink-rgb),0.8)]">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[var(--atelier-terracotta)]" />
                 <p className="text-xs leading-5">{error}</p>
               </div>
@@ -454,7 +557,7 @@ export default function HomePage() {
               type="button"
               onClick={run}
               disabled={!file || isWorking}
-              className="h-12 w-full rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.3)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-4 text-sm font-semibold text-[var(--atelier-terracotta)] transition-colors hover:bg-[rgba(var(--atelier-terracotta-rgb),0.12)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="h-12 w-full rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.3)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-4 text-sm font-semibold text-[var(--atelier-terracotta)] transition-[background-color,transform,box-shadow] duration-200 hover:bg-[rgba(var(--atelier-terracotta-rgb),0.14)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(207,90,67,0.18)] active:scale-[0.97] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:transform-none disabled:shadow-none"
             >
               {appState === "done" ? "Transcribe Again" : isWorking ? STATUS[appState] : "Transcribe"}
             </button>
@@ -463,30 +566,68 @@ export default function HomePage() {
 
         <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[28px]">
-              <div className="relative z-10 flex flex-col items-center gap-6">
-                <div className="rounded-[24px] p-2">
-                  <Persona variant="halo" state={personaState} className="size-[280px] sm:size-[320px] lg:size-[360px] xl:size-[420px] 2xl:size-[500px]" />
-                </div>
-              </div>
+            {/* Waveform visualization area */}
+            <div
+              className={cn(
+                "relative flex min-h-0 flex-1 flex-col items-center justify-center rounded-[28px] transition-colors duration-200",
+                dragging && "bg-[rgba(var(--atelier-gold-rgb),0.1)]",
+              )}
+              onDrop={onDrop}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+            >
+              <LiveWaveform
+                processing={isWorking || isReadingAudio}
+                mode="static"
+                barWidth={6}
+                barHeight={12}
+                barGap={3}
+                barRadius={999}
+                height={140}
+                sensitivity={1.2}
+                fadeEdges
+                className="h-40 w-full text-[rgb(var(--atelier-terracotta-rgb))]"
+              />
+              <p className="mt-4 text-center text-sm font-medium text-[rgba(var(--atelier-ink-rgb),0.7)]">
+                {fileLabel}
+              </p>
             </div>
 
             <div className="atelier-card rounded-[18px] p-3">
               <div className="atelier-kicker text-[9px]">Session</div>
               <div className="mt-1 text-sm font-semibold text-[var(--atelier-ink)]">{sessionName}</div>
-              <p className="mt-1 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)]">
-                {hasTranscript
-                  ? `${totalTranscriptWords} words in transcript.`
-                  : "Output ready when backend responds."}
-              </p>
+              {hasTranscript ? (
+                <div className="mt-3 space-y-2">
+                  {(() => {
+                    const summary = generateSummary(transcript, audioPreview.duration);
+                    return (
+                      <>
+                        <div className="text-xs font-semibold text-[rgba(var(--atelier-ink-rgb),0.7)] uppercase tracking-[0.05em]">
+                          {summary.title}
+                        </div>
+                        <p className="text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)] whitespace-pre-wrap">
+                          {summary.description}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <p className="mt-1 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)]">
+                  Output ready when backend responds.
+                </p>
+              )}
             </div>
           </div>
         </section>
 
         {hasTranscript ? (
-          <TranscriptView 
-            transcript={transcript} 
-            className="min-h-0"
+          <TranscriptView
+            transcript={transcript}
+            className="min-h-0 atelier-enter"
             onExpand={() => setIsTranscriptDetailOpen(true)}
           />
         ) : (

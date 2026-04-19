@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { X, Copy, Download, Loader } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EvaluationComponent } from './evaluation';
@@ -84,19 +84,28 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
   const [activeMainTab, setActiveMainTab] = useState<'main' | 'evaluations'>('main');
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
+  // visible drives the CSS transition — starts false so the enter animation plays from opacity-0
+  const [visible, setVisible] = useState(false);
+  const raf1Ref = useRef<number>(0);
+  const raf2Ref = useRef<number>(0);
 
-  // Handle animation when modal opens/closes
+  // Double-RAF trick: ensure the hidden initial state is painted before we transition to visible.
+  // A single useEffect without rAF can fire before the first paint, skipping the animation.
   useEffect(() => {
-    if (isOpen) {
-      setIsAnimating(true);
-    }
+    if (!isOpen) return;
+    raf1Ref.current = requestAnimationFrame(() => {
+      raf2Ref.current = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1Ref.current);
+      cancelAnimationFrame(raf2Ref.current);
+    };
   }, [isOpen]);
 
   const handleClose = useCallback(() => {
-    setIsAnimating(false);
-    // Wait for animation to complete before calling onClose
-    setTimeout(onClose, 300);
+    setVisible(false);
+    // 280ms matches the CSS transition duration — let the exit animation finish first
+    setTimeout(onClose, 280);
   }, [onClose]);
 
   const currentTranscript = transcript[activeLanguageTab];
@@ -143,11 +152,12 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — only opacity transitions; never animate backdrop-filter */}
       <div
         className={cn(
-          'fixed inset-0 z-40 transition-opacity duration-300',
-          isAnimating ? 'bg-black/40 backdrop-blur-sm opacity-100' : 'bg-black/0 backdrop-blur-none opacity-0'
+          'fixed inset-0 z-40 bg-[rgba(13,18,32,0.38)] backdrop-blur-[5px]',
+          'transition-opacity duration-[280ms] ease-out',
+          visible ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
       />
@@ -155,9 +165,12 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl }:
       {/* Modal */}
       <div
         className={cn(
-          'fixed inset-0 z-50 overflow-y-auto transition-all duration-300 flex items-center justify-center p-4',
-          isAnimating ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+          'fixed inset-0 z-50 flex items-center justify-center p-4',
+          // Only animate the two GPU-composited properties — not "all"
+          'transition-[opacity,transform] duration-[300ms] ease-[cubic-bezier(0.16,1,0.3,1)]',
+          visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-3 scale-[0.97] pointer-events-none',
         )}
+        style={{ willChange: 'transform, opacity' }}
       >
         <div className="w-full max-w-4xl max-h-[90vh] rounded-[32px] atelier-panel shadow-2xl flex flex-col overflow-hidden">
           {/* Header with Close Button */}

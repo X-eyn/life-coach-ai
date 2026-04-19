@@ -189,7 +189,8 @@ export function TranscriptView({ transcript, className, onExpand }: TranscriptVi
         <div className="atelier-kicker">Scrollable transcript only. Page stays fixed.</div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-y-auto bg-transparent">
+      {/* key forces remount on tab switch, triggering the CSS enter animation */}
+      <div key={activeTab} className="relative min-h-0 flex-1 overflow-y-auto bg-transparent atelier-fade-in">
         <Conversation className="relative">
           <ConversationContent className="px-4 py-4 sm:px-5 sm:py-5">
             {turns.map((turn) => (
