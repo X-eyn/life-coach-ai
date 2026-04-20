@@ -7,6 +7,7 @@ import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
 import { LibraryPanel, type LibrarySession } from "@/components/library-panel";
 import { WaveformPlayer } from "@/components/ui/waveform-player";
 import { decodeWaveformPeaks, MINI_PEAKS_COUNT } from "@/lib/audio-utils";
+import { extractVocativeNames, type DetectedName } from "@/lib/speaker-names";
 import { cn } from "@/lib/utils";
 
 const LIBRARY_STORAGE_KEY = "atelier_library";
@@ -189,6 +190,10 @@ export default function HomePage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDisplayName, setSessionDisplayName] = useState<string>("Awaiting session");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  /** User-confirmed / user-entered speaker names keyed by speakerIndex */
+  const [speakerNames, setSpeakerNames] = useState<Record<number, string>>({});
+  /** AI-detected names — recomputed after each transcription */
+  const [detectedNames, setDetectedNames] = useState<Map<number, DetectedName>>(new Map());
 
   const inputRef = useRef<HTMLInputElement>(null);
   const waveformSeekRef = useRef<{ seekTo: (s: number) => void } | null>(null);
@@ -347,6 +352,8 @@ export default function HomePage() {
     setAppState("done");
     setSessionDisplayName(session.name);
     setActiveSessionId(session.id);
+    setSpeakerNames(session.speakerNames ?? {});
+    setDetectedNames(new Map());
   }, []);
 
   const transcribeFile = useCallback(async (targetFile: File) => {
@@ -361,6 +368,11 @@ export default function HomePage() {
       if (transcriptionIdRef.current !== runId) return;
       setTranscript(nextTranscript);
       setAppState("done");
+      // Run vocative name extraction on the completed transcript
+      const parsedTurns = parseTurns(nextTranscript.bengali);
+      const detected = extractVocativeNames(parsedTurns);
+      setDetectedNames(detected);
+      setSpeakerNames({});
       void saveToLibrary(nextTranscript, targetFile, audioPreviewRef.current.duration);
     } catch (reason) {
       if (transcriptionIdRef.current !== runId) return;
@@ -402,6 +414,8 @@ export default function HomePage() {
     setAppState("idle");
     setSessionDisplayName("Awaiting session");
     setElapsedSeconds(0);
+    setSpeakerNames({});
+    setDetectedNames(new Map());
   };
 
   const run = async () => {
@@ -649,6 +663,21 @@ export default function HomePage() {
             className="min-h-0 atelier-enter"
             audioDuration={audioPreview.duration ?? undefined}
             onJumpToTime={(t) => { waveformSeekRef.current?.seekTo(t); }}
+            detectedNames={detectedNames}
+            speakerNames={speakerNames}
+            onSpeakerNamesChange={(names) => {
+              setSpeakerNames(names);
+              // Persist names to the active library session
+              if (activeSessionId) {
+                setLibrarySessions((prev) => {
+                  const next = prev.map((s) =>
+                    s.id === activeSessionId ? { ...s, speakerNames: names } : s
+                  );
+                  try { localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(next)); } catch {}
+                  return next;
+                });
+              }
+            }}
             onExpand={() => { setInitialTurnIndex(undefined); setIsTranscriptDetailOpen(true); }}
             onExpandToTurn={(i) => { setInitialTurnIndex(i); setIsTranscriptDetailOpen(true); }}
           />

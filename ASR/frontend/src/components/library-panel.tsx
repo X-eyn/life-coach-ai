@@ -18,6 +18,8 @@ export interface LibrarySession {
   waveformPeaks: number[];
   speakers: MiniWaveformSpeaker[];
   languageSplit: { bn: number; en: number };
+  /** User-confirmed speaker names keyed by speakerIndex */
+  speakerNames?: Record<number, string>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,10 +116,20 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
     setMenuOpen(false);
   };
 
-  const speakerLabel =
-    session.speakers.length > 1
+  // Build the speaker label:
+  // If confirmed names exist, show them. Otherwise fall back to count.
+  const speakerLabel = (() => {
+    const names = session.speakerNames;
+    if (names && Object.keys(names).length > 0) {
+      const confirmedNames = Object.values(names);
+      if (confirmedNames.length === 1) return confirmedNames[0];
+      if (confirmedNames.length === 2) return `${confirmedNames[0]} & ${confirmedNames[1]}`;
+      return `${confirmedNames.slice(0, 2).join(', ')} & ${confirmedNames.length - 2} more`;
+    }
+    return session.speakers.length > 1
       ? `${session.speakers.length} speakers`
       : '1 speaker';
+  })();
 
   return (
     <div

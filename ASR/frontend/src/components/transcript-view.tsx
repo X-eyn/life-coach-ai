@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import { ArrowRight, Check, Copy, Download, Loader } from 'lucide-react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { ArrowRight, Check, Copy, Download, Loader, Pencil, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types & helpers ────────────────────────────────────────────────────────
@@ -18,6 +18,19 @@ interface TranscriptViewProps {
   audioDuration?: number;
   /** Called when the user clicks a timeline segment; arg is approximate seek time in seconds. */
   onJumpToTime?: (seconds: number) => void;
+  /**
+   * AI-detected speaker names keyed by speakerIndex.
+   * `confidence: 'high'` — auto-filled and shown with sparkle confirmation strip.
+   * `confidence: 'low'`  — surfaced only as suggestion in rename popover.
+   */
+  detectedNames?: Map<number, { name: string; confidence: 'high' | 'low' }>;
+  /**
+   * User-confirmed / user-entered speaker names keyed by speakerIndex.
+   * When set, these take priority over `detectedNames`.
+   */
+  speakerNames?: Record<number, string>;
+  /** Called after user confirms or edits detected names. */
+  onSpeakerNamesChange?: (names: Record<number, string>) => void;
 }
 
 export interface Turn {
@@ -106,11 +119,115 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── RenamableLabel — click-to-rename speaker name inline ─────────────────────
+
+interface RenamableLabelProps {
+  name: string;
+  speakerIndex: number;
+  renamingIndex: number | null;
+  renameVal: string;
+  renameInputRef: React.RefObject<HTMLInputElement | null>;
+  detectedNames?: Map<number, { name: string; confidence: 'high' | 'low' }>;
+  speakerNames?: Record<number, string>;
+  onStartRename: (idx: number, current: string) => void;
+  onCommit: (idx: number) => void;
+  onCancel: () => void;
+  onChange: (v: string) => void;
+}
+
+function RenamableLabel({
+  name, speakerIndex, renamingIndex, renameVal, renameInputRef,
+  detectedNames, speakerNames,
+  onStartRename, onCommit, onCancel, onChange,
+}: RenamableLabelProps) {
+  const isRenaming = renamingIndex === speakerIndex;
+  const isAIDetected = !!speakerNames?.[speakerIndex] === false &&
+    detectedNames?.get(speakerIndex)?.confidence === 'high';
+
+  if (isRenaming) {
+    return (
+      <input
+        ref={renameInputRef as React.RefObject<HTMLInputElement>}
+        value={renameVal}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => onCommit(speakerIndex)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onCommit(speakerIndex);
+          if (e.key === 'Escape') onCancel();
+        }}
+        className="w-28 rounded-[5px] border border-[rgba(var(--atelier-terracotta-rgb),0.4)] bg-white px-1 py-0 text-[11px] text-[var(--atelier-ink)] outline-none"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      title="Click to rename"
+      onClick={() => onStartRename(speakerIndex, name)}
+      className="group flex items-center gap-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.78)]"
+    >
+      {isAIDetected && (
+        <Sparkles size={9} className="shrink-0 text-[var(--atelier-teal)] opacity-70" />
+      )}
+      {name}
+      <Pencil size={9} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-50" />
+    </button>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function TranscriptView({ transcript, className, onExpand, onExpandToTurn, audioDuration, onJumpToTime }: TranscriptViewProps) {
+export function TranscriptView({
+  transcript, className, onExpand, onExpandToTurn,
+  audioDuration, onJumpToTime,
+  detectedNames, speakerNames, onSpeakerNamesChange,
+}: TranscriptViewProps) {
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  // Which speaker is being renamed (speakerIndex), null = none
+  const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
+  const [renameVal, setRenameVal] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  // Whether the AI-detected name confirmation strip has been dismissed
+  const [detectionDismissed, setDetectionDismissed] = useState(false);
+
+  // Auto-focus the rename input when it appears
+  useEffect(() => {
+    if (renamingIndex !== null) setTimeout(() => renameInputRef.current?.select(), 0);
+  }, [renamingIndex]);
+
+  /** Returns the resolved display name for a speaker index. */
+  const resolveName = useCallback((speakerIndex: number, fallback: string): string => {
+    if (speakerNames?.[speakerIndex]) return speakerNames[speakerIndex];
+    const detected = detectedNames?.get(speakerIndex);
+    if (detected?.confidence === 'high') return detected.name;
+    return fallback;
+  }, [speakerNames, detectedNames]);
+
+  const commitRename = useCallback((speakerIndex: number) => {
+    const v = renameVal.trim();
+    if (v) onSpeakerNamesChange?.({ ...speakerNames, [speakerIndex]: v });
+    setRenamingIndex(null);
+  }, [renameVal, speakerNames, onSpeakerNamesChange]);
+
+  const confirmDetectedNames = useCallback(() => {
+    if (!detectedNames) return;
+    const confirmed: Record<number, string> = { ...speakerNames };
+    for (const [idx, { confidence, name }] of detectedNames) {
+      if (confidence === 'high' && !confirmed[idx]) confirmed[idx] = name;
+    }
+    onSpeakerNamesChange?.(confirmed);
+    setDetectionDismissed(true);
+  }, [detectedNames, speakerNames, onSpeakerNamesChange]);
+
+  // High-confidence unconfirmed detections that should show the strip
+  const pendingHighConfidence = useMemo(() => {
+    if (detectionDismissed || !detectedNames) return [];
+    return [...detectedNames.entries()]
+      .filter(([idx, { confidence }]) => confidence === 'high' && !speakerNames?.[idx])
+      .map(([idx, d]) => ({ idx, name: d.name }));
+  }, [detectedNames, speakerNames, detectionDismissed]);
 
   // ── Derived data ──────────────────────────────────────────────────────
 
@@ -135,21 +252,24 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
     }
     const total = turns.reduce((s, t) => s + t.wordCount, 0) || 1;
     return Array.from(map.entries()).map(([speaker, { speakerIndex, words }]) => ({
-      speaker,
+      speaker: resolveName(speakerIndex, speaker),
+      rawSpeaker: speaker,
       speakerIndex,
       words,
       pct: Math.round((words / total) * 100),
     }));
-  }, [turns]);
+  }, [turns, resolveName]);
 
   const totalTurnWords = useMemo(
     () => turns.reduce((s, t) => s + t.wordCount, 0) || 1,
     [turns],
   );
 
-  // Key moments: longest turn + final turn (2 items, deduplicated)
+  // Key moments: only shown for multi-turn transcripts.
+  // Longest turn + final turn (2 items, deduplicated)
   const keyMoments = useMemo(() => {
-    if (!turns.length) return [];
+    // Single-turn → no comparison possible, hide the section
+    if (turns.length <= 1) return [];
     const result: { idx: number; label: string; turn: Turn }[] = [];
 
     let longestIdx = 0;
@@ -294,6 +414,42 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
         </div>
       </div>
 
+      {/* ── AI name detection confirmation strip ──────────────────── */}
+      {pendingHighConfidence.length > 0 && (
+        <div className="mx-5 mb-2 flex items-center gap-2 rounded-[10px] border border-[rgba(var(--atelier-teal-rgb),0.2)] bg-[rgba(var(--atelier-teal-rgb),0.06)] px-3 py-2">
+          <Sparkles size={11} className="shrink-0 text-[var(--atelier-teal)]" />
+          <p className="min-w-0 flex-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
+            Detected: {pendingHighConfidence.map((p) => p.name).join(', ')}
+          </p>
+          <button type="button" onClick={confirmDetectedNames}
+            className="shrink-0 rounded-[6px] bg-[var(--atelier-teal)] px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-80">
+            Confirm
+          </button>
+          <button type="button" onClick={() => setDetectionDismissed(true)}
+            className="shrink-0 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.65)]">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* ── AI name detection confirmation strip ──────────────────── */}
+      {pendingHighConfidence.length > 0 && (
+        <div className="mx-5 mb-2 flex items-center gap-2 rounded-[10px] border border-[rgba(var(--atelier-teal-rgb),0.2)] bg-[rgba(var(--atelier-teal-rgb),0.06)] px-3 py-2">
+          <Sparkles size={11} className="shrink-0 text-[var(--atelier-teal)]" />
+          <p className="min-w-0 flex-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
+            Detected: {pendingHighConfidence.map((p) => p.name).join(', ')}
+          </p>
+          <button type="button" onClick={confirmDetectedNames}
+            className="shrink-0 rounded-[6px] bg-[var(--atelier-teal)] px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-80">
+            Confirm
+          </button>
+          <button type="button" onClick={() => setDetectionDismissed(true)}
+            className="shrink-0 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.65)]">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="mx-5 border-t border-[rgba(var(--atelier-ink-rgb),0.07)]" />
 
       {/* ── Main insights — no scroll ───────────────────────────────── */}
@@ -305,76 +461,111 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
           {/* Speaker distribution */}
           <div>
             <SectionLabel>Speakers</SectionLabel>
-            <div className="flex h-5 w-full overflow-hidden rounded-full">
-              {speakerStats.map((s) => (
-                <div
-                  key={s.speaker}
-                  style={{ width: `${s.pct}%`, background: speakerColor(s.speakerIndex), opacity: 0.85 }}
-                  className="relative flex items-center justify-center"
-                  title={`${s.speaker}: ${s.pct}%`}
-                >
-                  {s.pct >= 18 && (
-                    <span className="select-none text-[10px] font-bold text-white/90">{s.pct}%</span>
-                  )}
+            {speakerStats.length === 1 ? (
+              /* Single speaker — collapse bar into inline text + rename */
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: speakerColor(speakerStats[0].speakerIndex), opacity: 0.85 }} />
+                <RenamableLabel
+                  name={speakerStats[0].speaker} speakerIndex={speakerStats[0].speakerIndex}
+                  renamingIndex={renamingIndex} renameVal={renameVal} renameInputRef={renameInputRef}
+                  detectedNames={detectedNames} speakerNames={speakerNames}
+                  onStartRename={(idx, cur) => { setRenamingIndex(idx); setRenameVal(cur); }}
+                  onCommit={commitRename} onCancel={() => setRenamingIndex(null)} onChange={setRenameVal}
+                />
+              </div>
+            ) : (
+              /* Multi-speaker — full distribution bar */
+              <>
+                <div className="flex h-5 w-full overflow-hidden rounded-full">
+                  {speakerStats.map((s) => (
+                    <div
+                      key={s.speakerIndex}
+                      style={{ width: `${s.pct}%`, background: speakerColor(s.speakerIndex), opacity: 0.85 }}
+                      className="relative flex items-center justify-center"
+                      title={`${s.speaker}: ${s.pct}%`}
+                    >
+                      {s.pct >= 18 && (
+                        <span className="select-none text-[10px] font-bold text-white/90">{s.pct}%</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-              {speakerStats.map((s) => (
-                <div key={s.speaker} className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: speakerColor(s.speakerIndex) }}
-                  />
-                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">{s.speaker}</span>
-                  {s.pct < 18 && (
-                    <span className="text-[11px] font-semibold text-[rgba(var(--atelier-ink-rgb),0.72)]">{s.pct}%</span>
-                  )}
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  {speakerStats.map((s) => (
+                    <div key={s.speakerIndex} className="flex items-center gap-1">
+                      <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: speakerColor(s.speakerIndex) }} />
+                      <RenamableLabel
+                        name={s.speaker} speakerIndex={s.speakerIndex}
+                        renamingIndex={renamingIndex} renameVal={renameVal} renameInputRef={renameInputRef}
+                        detectedNames={detectedNames} speakerNames={speakerNames}
+                        onStartRename={(idx, cur) => { setRenamingIndex(idx); setRenameVal(cur); }}
+                        onCommit={commitRename} onCancel={() => setRenamingIndex(null)} onChange={setRenameVal}
+                      />
+                      {s.pct < 18 && (
+                        <span className="text-[11px] font-semibold text-[rgba(var(--atelier-ink-rgb),0.72)]">{s.pct}%</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
 
-          {/* Language split — Bangla gets a distinct slate-teal, English a lighter tone */}
+          {/* Language split */}
           <div>
             <SectionLabel>Language</SectionLabel>
-            <div className="flex h-5 w-full overflow-hidden rounded-full">
-              {langSplit.bangla > 0 && (
-                <div
-                  style={{ width: `${langSplit.bangla}%`, minWidth: '10px', background: '#3d6b68', opacity: 0.88 }}
-                  className="relative flex items-center justify-center shrink-0"
-                >
-                  {langSplit.bangla >= 18 && (
-                    <span className="select-none text-[10px] font-bold text-white/90">{langSplit.bangla}%</span>
+            {(langSplit.bangla === 0 || langSplit.english === 0) ? (
+              /* Single language — collapse bar into inline text */
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: langSplit.bangla > 0 ? '#3d6b68' : '#9baab4', opacity: 0.88 }} />
+                <span className="text-[12px] text-[rgba(var(--atelier-ink-rgb),0.62)]">
+                  {langSplit.bangla > 0 ? 'Bangla' : 'English'}
+                </span>
+              </div>
+            ) : (
+              /* Bilingual — full distribution bar */
+              <>
+                <div className="flex h-5 w-full overflow-hidden rounded-full">
+                  {langSplit.bangla > 0 && (
+                    <div
+                      style={{ width: `${langSplit.bangla}%`, minWidth: '10px', background: '#3d6b68', opacity: 0.88 }}
+                      className="relative flex items-center justify-center shrink-0"
+                    >
+                      {langSplit.bangla >= 18 && (
+                        <span className="select-none text-[10px] font-bold text-white/90">{langSplit.bangla}%</span>
+                      )}
+                    </div>
+                  )}
+                  {langSplit.english > 0 && (
+                    <div
+                      style={{ width: `${langSplit.english}%`, minWidth: '10px', background: '#9baab4', opacity: 0.90 }}
+                      className="relative flex items-center justify-center shrink-0"
+                    >
+                      {langSplit.english >= 18 && (
+                        <span className="select-none text-[10px] font-bold" style={{ color: 'rgba(13,18,32,0.65)' }}>{langSplit.english}%</span>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-              {langSplit.english > 0 && (
-                <div
-                  style={{ width: `${langSplit.english}%`, minWidth: '10px', background: '#9baab4', opacity: 0.90 }}
-                  className="relative flex items-center justify-center shrink-0"
-                >
-                  {langSplit.english >= 18 && (
-                    <span className="select-none text-[10px] font-bold" style={{ color: 'rgba(13,18,32,0.65)' }}>{langSplit.english}%</span>
+                <div className="mt-2 flex gap-3">
+                  {langSplit.bangla > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#3d6b68' }} />
+                      <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">Bangla</span>
+                    </div>
+                  )}
+                  {langSplit.english > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#9baab4' }} />
+                      <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">English</span>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-            {/* Legend: only show languages actually present */}
-            <div className="mt-2 flex gap-3">
-              {langSplit.bangla > 0 && (
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#3d6b68' }} />
-                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">Bangla</span>
-                </div>
-              )}
-              {langSplit.english > 0 && (
-                <div className="flex items-center gap-1">
-                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#9baab4' }} />
-                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">English</span>
-                </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
 
