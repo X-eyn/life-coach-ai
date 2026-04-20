@@ -14,6 +14,10 @@ interface TranscriptViewProps {
   className?: string;
   onExpand?: () => void;
   onExpandToTurn?: (turnIndex: number) => void;
+  /** Total audio duration in seconds — used to compute approximate seek position. */
+  audioDuration?: number;
+  /** Called when the user clicks a timeline segment; arg is approximate seek time in seconds. */
+  onJumpToTime?: (seconds: number) => void;
 }
 
 export interface Turn {
@@ -104,7 +108,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function TranscriptView({ transcript, className, onExpand, onExpandToTurn }: TranscriptViewProps) {
+export function TranscriptView({ transcript, className, onExpand, onExpandToTurn, audioDuration, onJumpToTime }: TranscriptViewProps) {
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -201,13 +205,19 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
 
   const handleTimelineClick = useCallback(
     (turnIndex: number) => {
+      // Seek the waveform player to the turn's approximate audio position
+      if (onJumpToTime && audioDuration) {
+        const cumulativeWords = turns.slice(0, turnIndex).reduce((s, t) => s + t.wordCount, 0);
+        const approxTime = (cumulativeWords / Math.max(1, totalTurnWords)) * audioDuration;
+        onJumpToTime(approxTime);
+      }
       if (onExpandToTurn) {
         onExpandToTurn(turnIndex);
       } else {
         onExpand?.();
       }
     },
-    [onExpandToTurn, onExpand],
+    [onExpandToTurn, onExpand, onJumpToTime, audioDuration, turns, totalTurnWords],
   );
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -220,7 +230,7 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
       )}
     >
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-5">
+      <div className="flex items-end justify-between gap-3 px-5 pb-2 pt-5">
         <div className="min-w-0 flex-1">
           <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[rgba(var(--atelier-ink-rgb),0.44)]">
             Transcript

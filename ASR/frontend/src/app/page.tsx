@@ -1,15 +1,16 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { AlertTriangle, History, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { AlertTriangle, Upload } from "lucide-react";
 import { TranscriptView, parseTurns, type Turn } from "@/components/transcript-view";
 import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
-import { RecentTranscriptionsPane, type RecentTranscription } from "@/components/recent-transcriptions-pane";
+import { LibraryPanel, type LibrarySession } from "@/components/library-panel";
 import { WaveformPlayer } from "@/components/ui/waveform-player";
+import { decodeWaveformPeaks, MINI_PEAKS_COUNT } from "@/lib/audio-utils";
 import { cn } from "@/lib/utils";
 
-const RECENT_STORAGE_KEY = "recent_transcriptions";
-const MAX_RECENT = 15;
+const LIBRARY_STORAGE_KEY = "atelier_library";
+const MAX_LIBRARY_SESSIONS = 50;
 
 type AppState = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -66,24 +67,6 @@ function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/\[([^\]\n]+)\]:\s*/g, "$1: ")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*]\s+/gm, "")
-    .replace(/\n{2,}/g, " ")
-    .replace(/\n/g, " ")
-    .trim();
-}
-
-function generateSummaryText(transcript: TranscriptData): string {
-  const stripped = stripMarkdown(transcript.english);
-  const words = stripped.split(/\s+/).filter(Boolean);
-  const preview = words.slice(0, 55).join(" ");
-  return preview + (words.length > 55 ? "…" : "");
-}
 
 function normalizeTranscriptPayload(payload: TranscriptResponse): TranscriptData | null {
   const candidate = payload?.transcript && typeof payload.transcript === "object"
@@ -202,12 +185,13 @@ export default function HomePage() {
   const [isReadingAudio, setIsReadingAudio] = useState(false);
   const [isTranscriptDetailOpen, setIsTranscriptDetailOpen] = useState(false);
   const [initialTurnIndex, setInitialTurnIndex] = useState<number | undefined>(undefined);
-  const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
-  const [recentTranscriptions, setRecentTranscriptions] = useState<RecentTranscription[]>([]);
+  const [librarySessions, setLibrarySessions] = useState<LibrarySession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDisplayName, setSessionDisplayName] = useState<string>("Awaiting session");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const waveformSeekRef = useRef<{ seekTo: (s: number) => void } | null>(null);
   const audioPreviewRef = useRef<AudioPreview>({ duration: null, sampleRate: null });
   const processingStartRef = useRef<number | null>(null);
   const transcriptionIdRef = useRef(0);
@@ -219,11 +203,11 @@ export default function HomePage() {
     audioPreviewRef.current = audioPreview;
   }, [audioPreview]);
 
-  // Load recent transcriptions from localStorage on mount
+  // Load library sessions from localStorage on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(RECENT_STORAGE_KEY);
-      if (stored) setRecentTranscriptions(JSON.parse(stored) as RecentTranscription[]);
+      const stored = localStorage.getItem(LIBRARY_STORAGE_KEY);
+      if (stored) setLibrarySessions(JSON.parse(stored) as LibrarySession[]);
     } catch {
       // ignore corrupt data
     }
@@ -286,22 +270,43 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, [isWorking]);
 
-  const saveToRecent = useCallback((nextTranscript: TranscriptData, targetFile: File, duration: number | null) => {
-    const entry: RecentTranscription = {
+  const saveToLibrary = useCallback(async (nextTranscript: TranscriptData, targetFile: File, duration: number | null) => {
+    // Derive speaker data from parsed turns
+    const turns = parseTurns(nextTranscript.bengali);
+    const speakerWordCounts = new Map<number, number>();
+    for (const turn of turns) {
+      speakerWordCounts.set(turn.speakerIndex, (speakerWordCounts.get(turn.speakerIndex) ?? 0) + turn.wordCount);
+    }
+    const speakers = Array.from(speakerWordCounts.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([id, wordCount]) => ({ id, wordCount }));
+
+    // Compute language split
+    const bengaliWords = nextTranscript.bengali.trim().split(/\s+/).filter(Boolean);
+    const banglaCount = bengaliWords.filter((w) => /[\u0980-\u09FF]/.test(w)).length;
+    const bnPct = bengaliWords.length ? Math.round((banglaCount / bengaliWords.length) * 100) : 50;
+
+    // Decode mini waveform peaks — runs after UI is already updated
+    const waveformPeaks = await decodeWaveformPeaks(targetFile, MINI_PEAKS_COUNT).catch(() => [] as number[]);
+
+    const entry: LibrarySession = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      fileName: formatSessionName(targetFile),
-      timestamp: Date.now(),
+      name: formatSessionName(targetFile),
+      createdAt: Date.now(),
       transcript: nextTranscript,
       duration,
       wordCount: countWords(`${nextTranscript.bengali} ${nextTranscript.english}`),
+      waveformPeaks,
+      speakers,
+      languageSplit: { bn: bnPct, en: 100 - bnPct },
     };
 
-    setRecentTranscriptions((prev) => {
-      // Remove any existing entry with the same file name so we don't duplicate
-      const deduped = prev.filter((t) => t.fileName !== entry.fileName);
-      const next = [entry, ...deduped].slice(0, MAX_RECENT);
+    setActiveSessionId(entry.id);
+    setLibrarySessions((prev) => {
+      const deduped = prev.filter((s) => s.name !== entry.name);
+      const next = [entry, ...deduped].slice(0, MAX_LIBRARY_SESSIONS);
       try {
-        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(next));
       } catch {
         // Ignore storage quota errors
       }
@@ -309,11 +314,24 @@ export default function HomePage() {
     });
   }, []);
 
-  const deleteFromRecent = useCallback((id: string) => {
-    setRecentTranscriptions((prev) => {
-      const next = prev.filter((t) => t.id !== id);
+  const deleteFromLibrary = useCallback((id: string) => {
+    setLibrarySessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
       try {
-        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    setActiveSessionId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const renameInLibrary = useCallback((id: string, name: string) => {
+    setLibrarySessions((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, name } : s));
+      try {
+        localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(next));
       } catch {
         // ignore
       }
@@ -321,14 +339,14 @@ export default function HomePage() {
     });
   }, []);
 
-  const loadFromRecent = useCallback((t: RecentTranscription) => {
-    setTranscript(t.transcript);
+  const loadFromLibrary = useCallback((session: LibrarySession) => {
+    setTranscript(session.transcript);
     setFile(null);
-    setAudioPreview({ duration: t.duration, sampleRate: null });
+    setAudioPreview({ duration: session.duration, sampleRate: null });
     setError("");
     setAppState("done");
-    setSessionDisplayName(t.fileName);
-    setIsSidePaneOpen(false);
+    setSessionDisplayName(session.name);
+    setActiveSessionId(session.id);
   }, []);
 
   const transcribeFile = useCallback(async (targetFile: File) => {
@@ -343,13 +361,13 @@ export default function HomePage() {
       if (transcriptionIdRef.current !== runId) return;
       setTranscript(nextTranscript);
       setAppState("done");
-      saveToRecent(nextTranscript, targetFile, audioPreviewRef.current.duration);
+      void saveToLibrary(nextTranscript, targetFile, audioPreviewRef.current.duration);
     } catch (reason) {
       if (transcriptionIdRef.current !== runId) return;
       setError(reason instanceof Error ? reason.message.toUpperCase() : "TRANSCRIPTION FAILED");
       setAppState("error");
     }
-  }, [saveToRecent]);
+  }, [saveToLibrary]);
 
   const acceptFile = useCallback((nextFile: File | null) => {
     if (!nextFile) return;
@@ -363,15 +381,11 @@ export default function HomePage() {
     setFile(nextFile);
     setTranscript(null);
     setError("");
+    setActiveSessionId(null);
     setAppState("idle");
     setSessionDisplayName(formatSessionName(nextFile));
     void transcribeFile(nextFile);
   }, [transcribeFile]);
-
-  const onChange = (event: ChangeEvent<HTMLInputElement>) => {
-    acceptFile(event.target.files?.[0] ?? null);
-    event.target.value = "";
-  };
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -384,6 +398,7 @@ export default function HomePage() {
     setFile(null);
     setTranscript(null);
     setError("");
+    setActiveSessionId(null);
     setAppState("idle");
     setSessionDisplayName("Awaiting session");
     setElapsedSeconds(0);
@@ -407,119 +422,33 @@ export default function HomePage() {
 
   return (
     <main className="h-screen overflow-hidden p-3 sm:p-4">
-      {/* Side-pane toggle tab — sits just outside the shell's left edge */}
-      <button
-        type="button"
-        onClick={() => setIsSidePaneOpen((v) => !v)}
-        className={cn(
-          "fixed left-3 top-1/2 z-50 -translate-y-1/2",
-          "flex h-14 w-8 flex-col items-center justify-center gap-1.5 rounded-[12px]",
-          "border border-[rgba(var(--atelier-ink-rgb),0.12)] backdrop-blur-[8px]",
-          "transition-colors duration-200",
-          isSidePaneOpen
-            ? "bg-[rgba(var(--atelier-terracotta-rgb),0.12)] border-[rgba(var(--atelier-terracotta-rgb),0.22)] text-[var(--atelier-terracotta)]"
-            : "bg-[rgba(255,255,255,0.72)] text-[rgba(var(--atelier-ink-rgb),0.55)] hover:bg-[rgba(255,255,255,0.9)] hover:text-[rgba(var(--atelier-ink-rgb),0.75)]",
-          "shadow-[0_4px_16px_rgba(13,18,32,0.1)]",
-        )}
-        aria-label={isSidePaneOpen ? "Close recent sessions" : "Open recent sessions"}
-      >
-        <History size={14} strokeWidth={2.2} />
-        {recentTranscriptions.length > 0 && !isSidePaneOpen && (
-          <span className="text-[9px] font-bold leading-none tracking-tight">
-            {recentTranscriptions.length > 9 ? "9+" : recentTranscriptions.length}
-          </span>
-        )}
-      </button>
-
-      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[minmax(180px,0.52fr)_minmax(340px,1.14fr)_minmax(340px,1.08fr)]">
-        {/* Collapsible recent transcriptions pane */}
-        <RecentTranscriptionsPane
-          isOpen={isSidePaneOpen}
-          onClose={() => setIsSidePaneOpen(false)}
-          transcriptions={recentTranscriptions}
-          onSelect={loadFromRecent}
-          onDelete={deleteFromRecent}
+      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[320px_minmax(340px,1fr)_minmax(340px,1fr)]">
+        <LibraryPanel
+          file={file}
+          appState={appState}
+          audioPreview={audioPreview}
+          isReadingAudio={isReadingAudio}
+          elapsedSeconds={elapsedSeconds}
+          error={error}
+          activeSessionId={activeSessionId}
+          sessions={librarySessions}
+          onClear={clear}
+          onTranscribeAgain={run}
+          onSelectSession={loadFromLibrary}
+          onDeleteSession={deleteFromLibrary}
+          onRenameSession={renameInLibrary}
         />
-        <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
+
+        {/* ── Middle panel: waveform player / dropzone ────────────────────── */}
+        <section className="flex min-h-0 flex-col overflow-hidden">
+          {/* Hidden file input — owned by the middle panel */}
           <input
             ref={inputRef}
             type="file"
             accept=".mp3,.wav,.m4a,.ogg,.flac,.webm,audio/*"
-            onChange={onChange}
+            onChange={(e) => { acceptFile(e.target.files?.[0] ?? null); e.target.value = ""; }}
             className="hidden"
           />
-          <div className="flex min-h-0 flex-1 flex-col gap-3 p-5 sm:p-6">
-            {/* Header with Select and Clear buttons */}
-            <div className="flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.2)] bg-transparent px-4 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.8)] transition-[background-color,border-color,transform] duration-150 hover:border-[rgba(var(--atelier-ink-rgb),0.3)] hover:bg-[rgba(var(--atelier-ink-rgb),0.03)] active:scale-95"
-              >
-                <Upload size={16} strokeWidth={2.1} />
-                <span>Select</span>
-              </button>
-
-              {file && (
-                <button
-                  type="button"
-                  onClick={clear}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(var(--atelier-ink-rgb),0.1)] text-[rgba(var(--atelier-ink-rgb),0.6)] transition-[background-color,transform] duration-150 hover:bg-[rgba(var(--atelier-ink-rgb),0.15)] active:scale-90"
-                  aria-label="Clear file"
-                >
-                  <X size={18} strokeWidth={2} />
-                </button>
-              )}
-            </div>
-
-
-            {/* Compact file info strip */}
-            {file && (
-              <div className="flex items-center gap-2 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(var(--atelier-ink-rgb),0.018)] px-3 py-2.5">
-                <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
-                  {inferFileType(file)}
-                </span>
-                {(audioPreview.duration || isReadingAudio) && (
-                  <>
-                    <span className="text-[rgba(var(--atelier-ink-rgb),0.2)]">&middot;</span>
-                    <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
-                      {isReadingAudio ? "—" : fmtDuration(audioPreview.duration)}
-                    </span>
-                  </>
-                )}
-                <span className="text-[rgba(var(--atelier-ink-rgb),0.2)]">&middot;</span>
-                <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
-                  {fmtBytes(file.size)}
-                </span>
-              </div>
-            )}
-
-            {error && (
-              <div className="atelier-enter flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-3 py-2 text-[rgba(var(--atelier-ink-rgb),0.8)]">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-[var(--atelier-terracotta)]" />
-                <p className="text-xs leading-5">{error}</p>
-              </div>
-            )}
-
-            {/* Transcribe / Cancel button */}
-            <button
-              type="button"
-              onClick={isWorking ? clear : run}
-              disabled={!file && !isWorking}
-              className={cn(
-                "h-12 w-full rounded-[12px] px-4 text-sm font-semibold transition-[background-color,transform,box-shadow] duration-200 active:scale-[0.97] active:translate-y-0",
-                isWorking
-                  ? "border border-[rgba(var(--atelier-ink-rgb),0.18)] bg-[rgba(var(--atelier-ink-rgb),0.05)] text-[rgba(var(--atelier-ink-rgb),0.58)] hover:bg-[rgba(var(--atelier-ink-rgb),0.09)]"
-                  : "border border-[rgba(var(--atelier-terracotta-rgb),0.3)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] text-[var(--atelier-terracotta)] hover:bg-[rgba(var(--atelier-terracotta-rgb),0.14)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(207,90,67,0.18)] disabled:cursor-not-allowed disabled:opacity-40 disabled:transform-none disabled:shadow-none",
-              )}
-            >
-              {isWorking ? "Cancel" : appState === "done" ? "Transcribe Again" : "Transcribe"}
-            </button>
-          </div>
-        </section>
-
-        {/* ── Middle panel: waveform player / dropzone ────────────────────── */}
-        <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
 
             {/* ── Empty state dropzone (idle, no file) ── */}
@@ -531,10 +460,10 @@ export default function HomePage() {
                     ? "border-[var(--atelier-gold)] bg-[rgba(var(--atelier-gold-rgb),0.07)] scale-[1.005]"
                     : "border-[rgba(var(--atelier-ink-rgb),0.13)] bg-[rgba(var(--atelier-ink-rgb),0.012)] hover:border-[rgba(var(--atelier-terracotta-rgb),0.35)] hover:bg-[rgba(var(--atelier-terracotta-rgb),0.025)]",
                 )}
+                onClick={() => inputRef.current?.click()}
                 onDrop={onDrop}
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
-                onClick={() => inputRef.current?.click()}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
@@ -566,6 +495,19 @@ export default function HomePage() {
                     </span>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fetch("/sample.mp3")
+                      .then((r) => r.blob())
+                      .then((b) => acceptFile(new File([b], "sample.mp3", { type: "audio/mpeg" })))
+                      .catch(() => inputRef.current?.click());
+                  }}
+                  className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.38)] underline-offset-2 transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.6)] hover:underline"
+                >
+                  Try with sample
+                </button>
               </div>
 
             ) : isWorking ? (
@@ -685,6 +627,7 @@ export default function HomePage() {
                 file={file}
                 turns={waveformTurns}
                 duration={audioPreview.duration}
+                seekRef={waveformSeekRef}
                 className="pt-1"
               />
 
@@ -704,17 +647,16 @@ export default function HomePage() {
           <TranscriptView
             transcript={transcript}
             className="min-h-0 atelier-enter"
+            audioDuration={audioPreview.duration ?? undefined}
+            onJumpToTime={(t) => { waveformSeekRef.current?.seekTo(t); }}
             onExpand={() => { setInitialTurnIndex(undefined); setIsTranscriptDetailOpen(true); }}
             onExpandToTurn={(i) => { setInitialTurnIndex(i); setIsTranscriptDetailOpen(true); }}
           />
         ) : (
           <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
-            {/* Header — no status pill; title shows session name when known */}
+            {/* Eyebrow only — skeleton speaks for itself */}
             <div className="border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-5 pb-3 pt-5">
               <div className="atelier-kicker">Transcript</div>
-              <h2 className="atelier-display mt-1 truncate text-[clamp(1.2rem,2.2vw,1.7rem)] leading-[0.96] text-[var(--atelier-ink)] opacity-50">
-                {sessionDisplayName !== "Awaiting session" ? sessionDisplayName : "Ready when done"}
-              </h2>
             </div>
 
             {/* Skeleton body — mimics the shape of the loaded TranscriptView */}

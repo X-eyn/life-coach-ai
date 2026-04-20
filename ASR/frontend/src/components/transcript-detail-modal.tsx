@@ -85,6 +85,8 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, i
   const [activeMainTab, setActiveMainTab] = useState<'main' | 'evaluations'>('main');
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [currentPlayTime, setCurrentPlayTime] = useState(0);
+  const [modalDuration, setModalDuration] = useState(0);
   // visible drives the CSS transition — starts false so the enter animation plays from opacity-0
   const [visible, setVisible] = useState(false);
   const raf1Ref = useRef<number>(0);
@@ -110,6 +112,23 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, i
     setTimeout(onClose, 280);
   }, [onClose]);
 
+  const currentTranscript = transcript[activeLanguageTab];
+  const turns = useMemo(() => parseTurns(currentTranscript), [currentTranscript]);
+  const wordTotal = wordCount(currentTranscript);
+
+  // Map playback position to the active turn via word-count proportions
+  const activeTurnIndex = useMemo(() => {
+    if (!currentPlayTime || !modalDuration || activeMainTab !== 'main') return -1;
+    const progress = currentPlayTime / modalDuration;
+    let cumWords = 0;
+    const total = turns.reduce((s, t) => s + wordCount(t.text), 0) || 1;
+    for (let i = 0; i < turns.length; i++) {
+      cumWords += wordCount(turns[i].text);
+      if (progress <= cumWords / total) return i;
+    }
+    return turns.length - 1;
+  }, [currentPlayTime, modalDuration, turns, activeMainTab]);
+
   // Scroll to a specific turn after the modal opens
   useEffect(() => {
     if (!visible || initialTurnIndex == null) return;
@@ -120,9 +139,12 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, i
     return () => clearTimeout(timer);
   }, [visible, initialTurnIndex]);
 
-  const currentTranscript = transcript[activeLanguageTab];
-  const turns = useMemo(() => parseTurns(currentTranscript), [currentTranscript]);
-  const wordTotal = wordCount(currentTranscript);
+  // Auto-scroll to the active turn as audio plays (nearest = only scrolls if off-screen)
+  useEffect(() => {
+    if (activeTurnIndex < 0) return;
+    const el = contentRef.current?.querySelector(`[data-turn-index="${activeTurnIndex}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeTurnIndex]);
 
   const copy = useCallback(async () => {
     await navigator.clipboard.writeText(currentTranscript);
@@ -288,7 +310,7 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, i
                   turns.map((turn, index) => {
                     const speakerColor = SPEAKER_COLORS[turn.speakerIndex as keyof typeof SPEAKER_COLORS] || SPEAKER_COLORS[0];
                     return (
-                      <div key={turn.id} data-turn-index={index} className="group">
+                      <div key={turn.id} data-turn-index={index} className={cn('group rounded-[12px] -mx-2 px-2 py-1.5 transition-colors duration-500', index === activeTurnIndex ? 'bg-[rgba(207,90,67,0.07)]' : '')}>
                         <div className="flex items-baseline gap-3 mb-2">
                           <div
                             className={cn('w-2 h-2 rounded-full flex-shrink-0 mt-1', speakerColor.dot)}
@@ -315,7 +337,10 @@ export function TranscriptDetailModal({ isOpen, onClose, transcript, audioUrl, i
           </div>
 
           {/* Media Player */}
-          <MediaPlayer audioUrl={audioUrl} />
+          <MediaPlayer
+            audioUrl={audioUrl}
+            onTimeUpdate={(t, dur) => { setCurrentPlayTime(t); setModalDuration(dur); }}
+          />
         </div>
       </div>
     </>

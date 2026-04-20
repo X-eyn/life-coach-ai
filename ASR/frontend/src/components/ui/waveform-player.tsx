@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Play, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SPEAKER_COLORS, decodeWaveformPeaks } from '@/lib/audio-utils';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SPEAKER_COLORS = ['#cf5a43', '#1f7e7a', '#3456d6', '#c9900e'];
 const BAR_W = 3;
 const BAR_GAP = 2;
 const BAR_R = 2;
@@ -31,6 +31,8 @@ export interface WaveformPlayerProps {
   turns?: WaveformTurn[];
   duration?: number | null;
   className?: string;
+  /** Pass a mutable ref — WaveformPlayer will populate `seekRef.current` with a `seekTo` handle. */
+  seekRef?: { current: { seekTo: (seconds: number) => void } | null };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -56,45 +58,9 @@ function rrect(
   ctx.closePath();
 }
 
-async function decodeAmplitude(file: File, count: number): Promise<number[]> {
-  const Ctor =
-    window.AudioContext ??
-    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctor) return Array.from({ length: count }, () => 0.3);
-  const ctx = new Ctor();
-  try {
-    const buffer = await file.arrayBuffer();
-    const decoded = await ctx.decodeAudioData(buffer.slice(0));
-    const ch = decoded.getChannelData(0);
-    const spc = Math.floor(ch.length / count);
-    const raw: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const start = i * spc;
-      const end = Math.min(start + spc, ch.length);
-      let max = 0;
-      for (let j = start; j < end; j++) {
-        const abs = Math.abs(ch[j] ?? 0);
-        if (abs > max) max = abs;
-      }
-      raw.push(max);
-    }
-    const peak = Math.max(...raw, 0.001);
-    // Logarithmic scaling: normalise, then compress with log so quiet speech
-    // still registers as meaningful bars rather than near-zero nubs.
-    const normalised = raw.map((v) => v / peak);
-    const logScaled = normalised.map((v) =>
-      v < 0.001 ? 0 : Math.log(1 + v * 9) / Math.log(10),
-    );
-    const logPeak = Math.max(...logScaled, 0.001);
-    return logScaled.map((v) => v / logPeak);
-  } catch {
-    return Array.from({ length: count }, (_, i) =>
-      Math.max(0.05, Math.abs(Math.sin(i * 0.25 + 0.5)) * 0.8),
-    );
-  } finally {
-    await ctx.close().catch(() => {});
-  }
-}
+// decodeAmplitude delegates to the shared decodeWaveformPeaks from audio-utils.
+// Kept as a local alias so the rest of the component code is unchanged.
+const decodeAmplitude = decodeWaveformPeaks;
 
 function mapToBars(amplitudes: number[], turns: WaveformTurn[]): BarData[] {
   const totalWords = turns.reduce((s, t) => s + t.wordCount, 0) || 1;
@@ -114,7 +80,7 @@ function mapToBars(amplitudes: number[], turns: WaveformTurn[]): BarData[] {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function WaveformPlayer({ file, turns = [], duration, className }: WaveformPlayerProps) {
+export function WaveformPlayer({ file, turns = [], duration, className, seekRef }: WaveformPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -449,6 +415,46 @@ export function WaveformPlayer({ file, turns = [], duration, className }: Wavefo
     return () => window.removeEventListener('keydown', handler);
   }, [isPlaying]);
 
+  // Expose seekTo via seekRef prop so the parent can seek without forwardRef
+  useEffect(() => {
+    if (!seekRef) return;
+    seekRef.current = {
+      seekTo(seconds: number) {
+        const audio = audioRef.current;
+        if (!audio) return;
+        const t = Math.max(0, Math.min(durationRef.current, seconds));
+        audio.currentTime = t;
+        currentTimeRef.current = t;
+        setCurrentTime(t);
+        isDirtyRef.current = true;
+      },
+    };
+    return () => { if (seekRef) seekRef.current = null; };
+  }, [seekRef]);
+
+  // Silence zone detection — label long quiet stretches (≥30 s) in the waveform
+  const silenceZones = useMemo(() => {
+    if (!bars.length || !audioDuration || audioDuration < 60) return [];
+    const THRESHOLD = 0.08;       // amplitude below this counts as silence
+    const MIN_SILENCE_SEC = 30;   // minimum run length to show a label
+    const secPerBar = audioDuration / bars.length;
+    const zones: { startPct: number; endPct: number; durationSec: number }[] = [];
+    let silenceStart = -1;
+    for (let i = 0; i <= bars.length; i++) {
+      const isSilent = i < bars.length && bars[i].amplitude < THRESHOLD;
+      if (isSilent && silenceStart === -1) {
+        silenceStart = i;
+      } else if (!isSilent && silenceStart !== -1) {
+        const durationSec = (i - silenceStart) * secPerBar;
+        if (durationSec >= MIN_SILENCE_SEC) {
+          zones.push({ startPct: silenceStart / bars.length, endPct: i / bars.length, durationSec });
+        }
+        silenceStart = -1;
+      }
+    }
+    return zones;
+  }, [bars, audioDuration]);
+
   // ── Derived display values ─────────────────────────────────────────────────
 
   // Unique speakers for the legend
@@ -567,6 +573,23 @@ export function WaveformPlayer({ file, turns = [], duration, className }: Wavefo
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-[rgba(207,90,67,0.25)] border-t-[rgb(207,90,67)]" />
           </div>
         )}
+
+        {/* Silence zone labels — appear at the bottom of the quiet region */}
+        {silenceZones.map((zone, idx) => {
+          const centerPct = ((zone.startPct + zone.endPct) / 2) * 100;
+          const label = zone.durationSec >= 60
+            ? `~${Math.round(zone.durationSec / 60)} min silence`
+            : `~${Math.round(zone.durationSec)}s silence`;
+          return (
+            <div
+              key={idx}
+              className="pointer-events-none absolute bottom-1.5 -translate-x-1/2 whitespace-nowrap rounded-[4px] bg-[rgba(255,255,255,0.72)] px-1.5 py-[2px] text-[9px] font-medium text-[rgba(var(--atelier-ink-rgb),0.38)] backdrop-blur-sm"
+              style={{ left: `${centerPct}%` }}
+            >
+              {label}
+            </div>
+          );
+        })}
       </div>
 
       {/* Transport controls */}

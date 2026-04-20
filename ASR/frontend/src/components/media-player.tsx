@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils';
 
 interface MediaPlayerProps {
   audioUrl?: string;
+  onTimeUpdate?: (t: number, dur: number) => void;
 }
 
-export function MediaPlayer({ audioUrl }: MediaPlayerProps) {
+export function MediaPlayer({ audioUrl, onTimeUpdate }: MediaPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -29,9 +30,12 @@ export function MediaPlayer({ audioUrl }: MediaPlayerProps) {
 
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current && !isDragging) {
-      setCurrentTime(audioRef.current.currentTime);
+      const t = audioRef.current.currentTime;
+      const dur = audioRef.current.duration || 0;
+      setCurrentTime(t);
+      onTimeUpdate?.(t, dur);
     }
-  }, [isDragging]);
+  }, [isDragging, onTimeUpdate]);
 
   const handleLoadedMetadata = useCallback(() => {
     if (audioRef.current) {
