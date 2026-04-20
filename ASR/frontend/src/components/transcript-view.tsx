@@ -16,7 +16,7 @@ interface TranscriptViewProps {
   onExpandToTurn?: (turnIndex: number) => void;
 }
 
-interface Turn {
+export interface Turn {
   id: string;
   speaker: string;
   speakerIndex: number;
@@ -28,7 +28,7 @@ function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function parseTurns(transcript: string): Turn[] {
+export function parseTurns(transcript: string): Turn[] {
   const text = transcript.replace(/\r\n/g, '\n');
   const regex = /(?:\*\*([^*\n:]+?):\*\*|\[([^\]\n]+?)\]:)\s*/g;
 
@@ -325,38 +325,45 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
             </div>
           </div>
 
-          {/* Language split — neutral slate colors so coral/teal stays locked to speaker identity */}
+          {/* Language split — Bangla gets a distinct slate-teal, English a lighter tone */}
           <div>
             <SectionLabel>Language</SectionLabel>
             <div className="flex h-5 w-full overflow-hidden rounded-full">
-              <div
-                style={{ width: `${langSplit.bangla}%`, background: '#5a6470', opacity: 0.88 }}
-                className="relative flex items-center justify-center"
-              >
-                {langSplit.bangla >= 18 && (
-                  <span className="select-none text-[10px] font-bold text-white/90">{langSplit.bangla}%</span>
-                )}
-              </div>
-              <div
-                style={{ width: `${langSplit.english}%`, background: '#b0b8c2', opacity: 0.90 }}
-                className="relative flex items-center justify-center"
-              >
-                {langSplit.english >= 18 && (
-                  <span className="select-none text-[10px] font-bold" style={{ color: 'rgba(13,18,32,0.65)' }}>{langSplit.english}%</span>
-                )}
-              </div>
-            </div>
-            {/* Legend: name only — percentages live inside the bar */}
-            <div className="mt-2 flex gap-3">
-              {[
-                { label: 'Bangla', color: '#5a6470' },
-                { label: 'English', color: '#b0b8c2' },
-              ].map(({ label, color }) => (
-                <div key={label} className="flex items-center gap-1">
-                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
-                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">{label}</span>
+              {langSplit.bangla > 0 && (
+                <div
+                  style={{ width: `${langSplit.bangla}%`, minWidth: '10px', background: '#3d6b68', opacity: 0.88 }}
+                  className="relative flex items-center justify-center shrink-0"
+                >
+                  {langSplit.bangla >= 18 && (
+                    <span className="select-none text-[10px] font-bold text-white/90">{langSplit.bangla}%</span>
+                  )}
                 </div>
-              ))}
+              )}
+              {langSplit.english > 0 && (
+                <div
+                  style={{ width: `${langSplit.english}%`, minWidth: '10px', background: '#9baab4', opacity: 0.90 }}
+                  className="relative flex items-center justify-center shrink-0"
+                >
+                  {langSplit.english >= 18 && (
+                    <span className="select-none text-[10px] font-bold" style={{ color: 'rgba(13,18,32,0.65)' }}>{langSplit.english}%</span>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Legend: only show languages actually present */}
+            <div className="mt-2 flex gap-3">
+              {langSplit.bangla > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#3d6b68' }} />
+                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">Bangla</span>
+                </div>
+              )}
+              {langSplit.english > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#9baab4' }} />
+                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.52)]">English</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -403,23 +410,27 @@ export function TranscriptView({ transcript, className, onExpand, onExpandToTurn
                   key={idx}
                   type="button"
                   onClick={() => handleTimelineClick(idx)}
-                  className="flex items-start gap-2.5 rounded-[10px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.38)] px-3 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
+                  className="group flex items-start gap-2.5 rounded-[10px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.38)] px-3 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
                 >
                   <span
                     className="mt-[3px] h-2 w-2 shrink-0 rounded-full"
                     style={{ background: speakerColor(turn.speakerIndex) }}
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
+                    <div className="flex items-baseline gap-1.5">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(var(--atelier-ink-rgb),0.36)]">
                         {label}
                       </span>
-                      <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.50)]">{turn.speaker}</span>
+                      <span className="text-[10px] text-[rgba(var(--atelier-ink-rgb),0.28)]">&middot; by</span>
+                      <span className="text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.55)]">{turn.speaker}</span>
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-[12px] leading-[1.4] text-[rgba(var(--atelier-ink-rgb),0.65)]">
                       {turn.text}
                     </p>
                   </div>
+                  <span className="mt-0.5 shrink-0 text-[rgba(var(--atelier-ink-rgb),0.22)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[rgba(var(--atelier-ink-rgb),0.5)]">
+                    →
+                  </span>
                 </button>
               ))}
             </div>

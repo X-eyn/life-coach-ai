@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { AlertTriangle, History, Upload, X } from "lucide-react";
-import { Persona, type PersonaState } from "@/components/persona";
-import { TranscriptView } from "@/components/transcript-view";
+import { TranscriptView, parseTurns, type Turn } from "@/components/transcript-view";
 import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
 import { RecentTranscriptionsPane, type RecentTranscription } from "@/components/recent-transcriptions-pane";
-import { LiveWaveform } from "@/components/ui/live-waveform";
+import { WaveformPlayer } from "@/components/ui/waveform-player";
 import { cn } from "@/lib/utils";
 
 const RECENT_STORAGE_KEY = "recent_transcriptions";
@@ -34,54 +33,7 @@ type TranscriptResponse = {
   error?: unknown;
 };
 
-const STATUS: Record<AppState, string> = {
-  idle: "Waiting",
-  uploading: "Scanning",
-  processing: "Transcribing",
-  done: "Ready",
-  error: "Error",
-};
 
-const STATE_COPY: Record<AppState, { description: string; note: string }> = {
-  idle: {
-    description: "Upload a session to activate the stage and start the transcription flow.",
-    note: "The output panel is reserved for the bilingual transcript once processing finishes.",
-  },
-  uploading: {
-    description: "The file is being read and the waveform preview is being prepared.",
-    note: "Audio metadata stays visible while the backend handoff begins.",
-  },
-  processing: {
-    description: "The backend is producing the transcript while the interface stays fully interactive.",
-    note: "As soon as the payload returns, the output panel switches into transcript mode automatically.",
-  },
-  done: {
-    description: "The transcript is ready to review, switch by language, copy, and export.",
-    note: "All actions remain live inside this screen. No extra route or page transition is needed.",
-  },
-  error: {
-    description: "The request failed, but the session surface stays intact so you can retry quickly.",
-    note: "Use clear or rerun without losing the current visual context.",
-  },
-};
-
-const STATE_PILL_CLASS: Record<AppState, string> = {
-  idle: "border-[rgba(var(--atelier-gold-rgb),0.28)] bg-[rgba(var(--atelier-gold-rgb),0.18)] text-[rgba(var(--atelier-ink-rgb),0.82)]",
-  uploading: "border-[rgba(var(--atelier-terracotta-rgb),0.24)] bg-[rgba(var(--atelier-terracotta-rgb),0.12)] text-[var(--atelier-terracotta)]",
-  processing: "border-[rgba(var(--atelier-cobalt-rgb),0.22)] bg-[rgba(var(--atelier-cobalt-rgb),0.12)] text-[var(--atelier-cobalt)]",
-  done: "border-[rgba(var(--atelier-teal-rgb),0.22)] bg-[rgba(var(--atelier-teal-rgb),0.12)] text-[var(--atelier-teal)]",
-  error: "border-[rgba(var(--atelier-terracotta-rgb),0.24)] bg-[rgba(var(--atelier-terracotta-rgb),0.12)] text-[var(--atelier-terracotta)]",
-};
-
-const MOSAIC_TILES = [
-  "left-5 top-5 h-16 w-20 rounded-[22px] bg-[rgba(var(--atelier-terracotta-rgb),0.18)]",
-  "right-8 top-8 h-[72px] w-[72px] rounded-[22px] bg-[rgba(var(--atelier-cobalt-rgb),0.16)]",
-  "left-8 bottom-10 h-14 w-24 rounded-[20px] bg-[rgba(var(--atelier-teal-rgb),0.16)]",
-  "right-8 bottom-8 h-16 w-16 rounded-[20px] bg-[rgba(var(--atelier-gold-rgb),0.18)]",
-  "left-1/2 top-8 h-12 w-12 -translate-x-1/2 rounded-[16px] bg-[rgba(var(--atelier-paper-strong-rgb),0.7)]",
-  "left-6 top-1/2 h-10 w-10 -translate-y-1/2 rounded-[16px] bg-[rgba(var(--atelier-paper-strong-rgb),0.64)]",
-  "right-6 top-1/2 h-10 w-14 -translate-y-1/2 rounded-[16px] bg-[rgba(var(--atelier-paper-strong-rgb),0.64)]",
-];
 
 function fmtBytes(bytes: number) {
   if (!bytes) return "0 B";
@@ -114,29 +66,23 @@ function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function generateSummary(transcript: TranscriptData, duration: number | null): { title: string; description: string } {
-  const bengaliWords = countWords(transcript.bengali);
-  const englishWords = countWords(transcript.english);
-  const totalWords = bengaliWords + englishWords;
-  
-  // Extract first 200 characters of english transcript for context
-  const snippetLength = 150;
-  const englishSnippet = transcript.english.substring(0, snippetLength).trim();
-  const hasMoreContent = transcript.english.length > snippetLength;
-  
-  // Generate contextual title and description
-  const durationStr = duration ? ` • ${fmtDuration(duration)}` : "";
-  const languageInfo = `Bilingual (Bengali & English)`;
-  
-  // Create a concise summary description
-  const description = `${languageInfo}${durationStr} • ${totalWords.toLocaleString()} words total
-  
-${englishSnippet}${hasMoreContent ? "..." : ""}`;
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/\[([^\]\n]+)\]:\s*/g, "$1: ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\n{2,}/g, " ")
+    .replace(/\n/g, " ")
+    .trim();
+}
 
-  return {
-    title: `Session Summary`,
-    description: description,
-  };
+function generateSummaryText(transcript: TranscriptData): string {
+  const stripped = stripMarkdown(transcript.english);
+  const words = stripped.split(/\s+/).filter(Boolean);
+  const preview = words.slice(0, 55).join(" ");
+  return preview + (words.length > 55 ? "…" : "");
 }
 
 function normalizeTranscriptPayload(payload: TranscriptResponse): TranscriptData | null {
@@ -241,14 +187,7 @@ async function buildAudioPreview(file: File): Promise<AudioPreview> {
   }
 }
 
-function PropertyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[88px_1fr] gap-4 border-t border-[rgba(var(--atelier-ink-rgb),0.08)] pt-3 first:border-t-0 first:pt-0">
-      <dt className="atelier-kicker text-[10px] text-[rgba(var(--atelier-ink-rgb),0.5)]">{label}</dt>
-      <dd className="break-all text-sm leading-6 text-[rgba(var(--atelier-ink-rgb),0.82)]">{value}</dd>
-    </div>
-  );
-}
+
 
 export default function HomePage() {
   const [appState, setAppState] = useState<AppState>("idle");
@@ -265,9 +204,13 @@ export default function HomePage() {
   const [initialTurnIndex, setInitialTurnIndex] = useState<number | undefined>(undefined);
   const [isSidePaneOpen, setIsSidePaneOpen] = useState(false);
   const [recentTranscriptions, setRecentTranscriptions] = useState<RecentTranscription[]>([]);
+  const [sessionDisplayName, setSessionDisplayName] = useState<string>("Awaiting session");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioPreviewRef = useRef<AudioPreview>({ duration: null, sampleRate: null });
+  const processingStartRef = useRef<number | null>(null);
+  const transcriptionIdRef = useRef(0);
   const isWorking = appState === "uploading" || appState === "processing";
   const hasTranscript = transcript !== null;
 
@@ -285,17 +228,6 @@ export default function HomePage() {
       // ignore corrupt data
     }
   }, []);
-
-  const personaState: PersonaState =
-    appState === "uploading"
-      ? "listening"
-      : appState === "processing"
-        ? "thinking"
-        : appState === "done"
-          ? "speaking"
-          : appState === "error"
-            ? "asleep"
-            : "idle";
 
   useEffect(() => {
     if (!file) {
@@ -341,6 +273,19 @@ export default function HomePage() {
     }
   }, [isTranscriptDetailOpen]);
 
+  // Elapsed counter while transcribing
+  useEffect(() => {
+    if (!isWorking) {
+      setElapsedSeconds(0);
+      return;
+    }
+    processingStartRef.current = Date.now();
+    const id = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - (processingStartRef.current ?? Date.now())) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isWorking]);
+
   const saveToRecent = useCallback((nextTranscript: TranscriptData, targetFile: File, duration: number | null) => {
     const entry: RecentTranscription = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -382,10 +327,12 @@ export default function HomePage() {
     setAudioPreview({ duration: t.duration, sampleRate: null });
     setError("");
     setAppState("done");
+    setSessionDisplayName(t.fileName);
     setIsSidePaneOpen(false);
   }, []);
 
   const transcribeFile = useCallback(async (targetFile: File) => {
+    const runId = ++transcriptionIdRef.current;
     setError("");
     setTranscript(null);
     setAppState("uploading");
@@ -393,10 +340,12 @@ export default function HomePage() {
     try {
       setAppState("processing");
       const nextTranscript = await requestTranscription(targetFile);
+      if (transcriptionIdRef.current !== runId) return;
       setTranscript(nextTranscript);
       setAppState("done");
       saveToRecent(nextTranscript, targetFile, audioPreviewRef.current.duration);
     } catch (reason) {
+      if (transcriptionIdRef.current !== runId) return;
       setError(reason instanceof Error ? reason.message.toUpperCase() : "TRANSCRIPTION FAILED");
       setAppState("error");
     }
@@ -415,6 +364,7 @@ export default function HomePage() {
     setTranscript(null);
     setError("");
     setAppState("idle");
+    setSessionDisplayName(formatSessionName(nextFile));
     void transcribeFile(nextFile);
   }, [transcribeFile]);
 
@@ -430,10 +380,13 @@ export default function HomePage() {
   };
 
   const clear = () => {
+    transcriptionIdRef.current++;
     setFile(null);
     setTranscript(null);
     setError("");
     setAppState("idle");
+    setSessionDisplayName("Awaiting session");
+    setElapsedSeconds(0);
   };
 
   const run = async () => {
@@ -441,11 +394,16 @@ export default function HomePage() {
     await transcribeFile(file);
   };
 
-  const sessionName = formatSessionName(file);
   const totalTranscriptWords = transcript ? countWords(`${transcript.bengali} ${transcript.english}`) : 0;
-  const stageCopy = STATE_COPY[appState];
-  const stagePill = STATE_PILL_CLASS[appState];
-  const fileLabel = file ? file.name : dragging ? "Drop the file here" : "No file loaded";
+
+  // Parse turns for WaveformPlayer speaker colouring
+  const waveformTurns = transcript
+    ? parseTurns(transcript.bengali).map((t: Turn) => ({
+        speaker: t.speaker,
+        speakerIndex: t.speakerIndex,
+        wordCount: t.wordCount,
+      }))
+    : [];
 
   return (
     <main className="h-screen overflow-hidden p-3 sm:p-4">
@@ -473,7 +431,7 @@ export default function HomePage() {
         )}
       </button>
 
-      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[minmax(260px,0.82fr)_minmax(300px,0.96fr)_minmax(340px,1.08fr)]">
+      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[minmax(180px,0.52fr)_minmax(340px,1.14fr)_minmax(340px,1.08fr)]">
         {/* Collapsible recent transcriptions pane */}
         <RecentTranscriptionsPane
           isOpen={isSidePaneOpen}
@@ -514,37 +472,27 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* AI Persona Circle */}
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px]">
-              <div className="relative z-10 flex flex-col items-center gap-4">
-                <div className="rounded-[24px] p-2">
-                  <Persona variant="halo" state={personaState} className="size-[200px] sm:size-[220px] lg:size-[240px]" />
-                </div>
-              </div>
-            </div>
 
-            {/* Properties Grid */}
-            <div className="rounded-[16px] bg-[rgba(var(--atelier-ink-rgb),0.02)] border border-[rgba(var(--atelier-ink-rgb),0.08)] p-4">
-              <div className="text-[10px] font-semibold text-[rgba(var(--atelier-ink-rgb),0.5)] tracking-[0.08em] uppercase mb-3">Properties</div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                <div>
-                  <dt className="text-[12px] font-medium text-[rgba(var(--atelier-ink-rgb),0.6)]">Type</dt>
-                  <dd className="mt-1 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.85)]">{inferFileType(file)}</dd>
-                </div>
-                <div>
-                  <dt className="text-[12px] font-medium text-[rgba(var(--atelier-ink-rgb),0.6)]">Length</dt>
-                  <dd className="mt-1 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.85)]">{isReadingAudio ? "Scanning" : fmtDuration(audioPreview.duration)}</dd>
-                </div>
-                <div>
-                  <dt className="text-[12px] font-medium text-[rgba(var(--atelier-ink-rgb),0.6)]">Size</dt>
-                  <dd className="mt-1 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.85)]">{file ? fmtBytes(file.size) : "--"}</dd>
-                </div>
-                <div>
-                  <dt className="text-[12px] font-medium text-[rgba(var(--atelier-ink-rgb),0.6)]">Rate</dt>
-                  <dd className="mt-1 text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.85)]">{isReadingAudio ? "Scanning" : audioPreview.sampleRate ? `${audioPreview.sampleRate.toLocaleString()} Hz` : "--"}</dd>
-                </div>
+            {/* Compact file info strip */}
+            {file && (
+              <div className="flex items-center gap-2 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(var(--atelier-ink-rgb),0.018)] px-3 py-2.5">
+                <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
+                  {inferFileType(file)}
+                </span>
+                {(audioPreview.duration || isReadingAudio) && (
+                  <>
+                    <span className="text-[rgba(var(--atelier-ink-rgb),0.2)]">&middot;</span>
+                    <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
+                      {isReadingAudio ? "—" : fmtDuration(audioPreview.duration)}
+                    </span>
+                  </>
+                )}
+                <span className="text-[rgba(var(--atelier-ink-rgb),0.2)]">&middot;</span>
+                <span className="font-mono text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.52)]">
+                  {fmtBytes(file.size)}
+                </span>
               </div>
-            </div>
+            )}
 
             {error && (
               <div className="atelier-enter flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-3 py-2 text-[rgba(var(--atelier-ink-rgb),0.8)]">
@@ -553,75 +501,202 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Transcribe Button */}
+            {/* Transcribe / Cancel button */}
             <button
               type="button"
-              onClick={run}
-              disabled={!file || isWorking}
-              className="h-12 w-full rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.3)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] px-4 text-sm font-semibold text-[var(--atelier-terracotta)] transition-[background-color,transform,box-shadow] duration-200 hover:bg-[rgba(var(--atelier-terracotta-rgb),0.14)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(207,90,67,0.18)] active:scale-[0.97] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:transform-none disabled:shadow-none"
+              onClick={isWorking ? clear : run}
+              disabled={!file && !isWorking}
+              className={cn(
+                "h-12 w-full rounded-[12px] px-4 text-sm font-semibold transition-[background-color,transform,box-shadow] duration-200 active:scale-[0.97] active:translate-y-0",
+                isWorking
+                  ? "border border-[rgba(var(--atelier-ink-rgb),0.18)] bg-[rgba(var(--atelier-ink-rgb),0.05)] text-[rgba(var(--atelier-ink-rgb),0.58)] hover:bg-[rgba(var(--atelier-ink-rgb),0.09)]"
+                  : "border border-[rgba(var(--atelier-terracotta-rgb),0.3)] bg-[rgba(var(--atelier-terracotta-rgb),0.08)] text-[var(--atelier-terracotta)] hover:bg-[rgba(var(--atelier-terracotta-rgb),0.14)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(207,90,67,0.18)] disabled:cursor-not-allowed disabled:opacity-40 disabled:transform-none disabled:shadow-none",
+              )}
             >
-              {appState === "done" ? "Transcribe Again" : isWorking ? STATUS[appState] : "Transcribe"}
+              {isWorking ? "Cancel" : appState === "done" ? "Transcribe Again" : "Transcribe"}
             </button>
           </div>
         </section>
 
+        {/* ── Middle panel: waveform player / dropzone ────────────────────── */}
         <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
-            {/* Waveform visualization area */}
-            <div
-              className={cn(
-                "relative flex min-h-0 flex-1 flex-col items-center justify-center rounded-[28px] transition-colors duration-200",
-                dragging && "bg-[rgba(var(--atelier-gold-rgb),0.1)]",
-              )}
-              onDrop={onDrop}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-            >
-              <LiveWaveform
-                processing={isWorking || isReadingAudio}
-                mode="static"
-                barWidth={6}
-                barHeight={12}
-                barGap={3}
-                barRadius={999}
-                height={140}
-                sensitivity={1.2}
-                fadeEdges
-                className="h-40 w-full text-[rgb(var(--atelier-terracotta-rgb))]"
-              />
-              <p className="mt-4 text-center text-sm font-medium text-[rgba(var(--atelier-ink-rgb),0.7)]">
-                {fileLabel}
-              </p>
-            </div>
 
-            <div className="atelier-card rounded-[18px] p-3">
-              <div className="atelier-kicker text-[9px]">Session</div>
-              <div className="mt-1 text-sm font-semibold text-[var(--atelier-ink)]">{sessionName}</div>
-              {hasTranscript ? (
-                <div className="mt-3 space-y-2">
-                  {(() => {
-                    const summary = generateSummary(transcript, audioPreview.duration);
+            {/* ── Empty state dropzone (idle, no file) ── */}
+            {appState === "idle" && !file ? (
+              <div
+                className={cn(
+                  "relative flex min-h-0 flex-1 cursor-pointer flex-col items-center justify-center gap-4 rounded-[24px] border-2 border-dashed p-6 text-center transition-all duration-200",
+                  dragging
+                    ? "border-[var(--atelier-gold)] bg-[rgba(var(--atelier-gold-rgb),0.07)] scale-[1.005]"
+                    : "border-[rgba(var(--atelier-ink-rgb),0.13)] bg-[rgba(var(--atelier-ink-rgb),0.012)] hover:border-[rgba(var(--atelier-terracotta-rgb),0.35)] hover:bg-[rgba(var(--atelier-terracotta-rgb),0.025)]",
+                )}
+                onDrop={onDrop}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onClick={() => inputRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+              >
+                <div
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-[14px] transition-transform duration-200",
+                    "bg-[rgba(var(--atelier-terracotta-rgb),0.09)] text-[var(--atelier-terracotta)]",
+                    dragging ? "scale-110" : "",
+                  )}
+                >
+                  <Upload size={20} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-[rgba(var(--atelier-ink-rgb),0.78)]">
+                    {dragging ? "Drop to upload" : "Drop an audio file here"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[rgba(var(--atelier-ink-rgb),0.44)]">
+                    or click to browse
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  {["MP3", "WAV", "M4A", "FLAC", "OGG"].map((fmt) => (
+                    <span
+                      key={fmt}
+                      className="rounded-[6px] bg-[rgba(var(--atelier-ink-rgb),0.05)] px-2 py-0.5 font-mono text-[10px] font-medium text-[rgba(var(--atelier-ink-rgb),0.38)]"
+                    >
+                      {fmt}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+            ) : isWorking ? (
+              /* ── Processing state ── */
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden rounded-[24px] bg-[rgba(var(--atelier-ink-rgb),0.018)]">
+                {/* Animated bars — fill left-to-right based on estimated progress */}
+                <div className="flex h-14 items-end justify-center gap-[3px] px-4">
+                  {Array.from({ length: 28 }, (_, i) => {
+                    const fillFrac = audioPreview.duration
+                      ? Math.min(1, elapsedSeconds / Math.max(1, Math.round(audioPreview.duration * 0.45)))
+                      : 0;
+                    const isFilled = (i / 28) < fillFrac;
                     return (
-                      <>
-                        <div className="text-xs font-semibold text-[rgba(var(--atelier-ink-rgb),0.7)] uppercase tracking-[0.05em]">
-                          {summary.title}
-                        </div>
-                        <p className="text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)] whitespace-pre-wrap">
-                          {summary.description}
-                        </p>
-                      </>
+                      <div
+                        key={i}
+                        className="w-[3px] rounded-full bg-[var(--atelier-terracotta)] transition-opacity duration-700"
+                        style={{
+                          height: `${20 + Math.abs(Math.sin(i * 0.6)) * 36}%`,
+                          opacity: isFilled ? 0.85 : 0.18,
+                          animationDelay: `${i * 45}ms`,
+                          animation: isFilled ? "waveBar 1.2s ease-in-out infinite alternate" : "none",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Elapsed time + estimate */}
+                <div className="flex flex-col items-center gap-1">
+                  <div className="flex items-baseline gap-2 tabular-nums">
+                    <span className="font-mono text-2xl font-semibold tracking-tight text-[rgba(var(--atelier-ink-rgb),0.78)]">
+                      {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
+                    </span>
+                    <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.36)]">elapsed</span>
+                  </div>
+                  {audioPreview.duration && (() => {
+                    const est = Math.round(audioPreview.duration * 0.45);
+                    const rem = Math.max(0, est - elapsedSeconds);
+                    return (
+                      <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.36)]">
+                        {rem > 0 ? `~${rem}s remaining` : "almost done…"}
+                      </p>
                     );
                   })()}
                 </div>
-              ) : (
-                <p className="mt-1 text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.68)]">
-                  Output ready when backend responds.
+
+                {/* Stage tracker with connecting lines */}
+                <div className="flex items-center">
+                  {(["Upload", "Transcribe", "Analyse"] as const).map((stage, i) => {
+                    const stageIndex = appState === "uploading" ? 0 : 1;
+                    const isDone = i < stageIndex;
+                    const isActive = i === stageIndex;
+                    const isLast = i === 2;
+                    return (
+                      <div key={stage} className="flex items-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <div
+                            className={cn(
+                              "flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold transition-colors",
+                              isActive
+                                ? "animate-pulse border-[var(--atelier-terracotta)] bg-[rgba(207,90,67,0.1)] text-[var(--atelier-terracotta)]"
+                                : isDone
+                                  ? "border-[var(--atelier-teal)] bg-[rgba(31,126,122,0.1)] text-[var(--atelier-teal)]"
+                                  : "border-[rgba(var(--atelier-ink-rgb),0.14)] text-[rgba(var(--atelier-ink-rgb),0.2)]",
+                            )}
+                          >
+                            {isDone ? "✓" : i + 1}
+                          </div>
+                          <span
+                            className={cn(
+                              "text-[10px] font-medium transition-colors",
+                              isActive
+                                ? "text-[rgba(var(--atelier-ink-rgb),0.7)]"
+                                : isDone
+                                  ? "text-[var(--atelier-teal)]"
+                                  : "text-[rgba(var(--atelier-ink-rgb),0.26)]",
+                            )}
+                          >
+                            {stage}
+                          </span>
+                        </div>
+                        {!isLast && (
+                          <div
+                            className={cn(
+                              "mb-4 h-px w-8 transition-colors",
+                              isDone ? "bg-[rgba(31,126,122,0.4)]" : "bg-[rgba(var(--atelier-ink-rgb),0.1)]",
+                            )}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Activity log */}
+                <div className="flex flex-col items-start gap-1.5 text-[11px]">
+                  <div className="flex items-center gap-1.5 text-[var(--atelier-teal)]">
+                    <span>✓</span><span>File received</span>
+                  </div>
+                  {audioPreview.duration && (
+                    <div className="flex items-center gap-1.5 text-[var(--atelier-teal)]">
+                      <span>✓</span><span>Audio decoded &middot; {fmtDuration(audioPreview.duration)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5 text-[rgba(var(--atelier-ink-rgb),0.45)]">
+                    <span className="animate-pulse">⋯</span><span>Transcribing audio</span>
+                  </div>
+                </div>
+                <p className="font-mono text-[9px] tracking-widest text-[rgba(var(--atelier-ink-rgb),0.22)]">
+                  ESC TO CANCEL
                 </p>
-              )}
-            </div>
+              </div>
+
+            ) : hasTranscript || file ? (
+              /* ── Loaded state: speaker-coloured interactive waveform ── */
+              <WaveformPlayer
+                file={file}
+                turns={waveformTurns}
+                duration={audioPreview.duration}
+                className="pt-1"
+              />
+
+            ) : null}
+
+            {/* Error banner */}
+            {appState === "error" && (
+              <div className="flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.07)] px-3 py-2.5">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--atelier-terracotta)]" />
+                <p className="text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.75)]">{error || "Something went wrong."}</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -634,33 +709,64 @@ export default function HomePage() {
           />
         ) : (
           <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
-            <div className="border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-4 py-4 sm:px-5">
+            {/* Header — no status pill; title shows session name when known */}
+            <div className="border-b border-[rgba(var(--atelier-ink-rgb),0.08)] px-5 pb-3 pt-5">
               <div className="atelier-kicker">Transcript</div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <h2 className="atelier-display text-[clamp(1.9rem,3vw,2.8rem)] leading-[0.92] text-[var(--atelier-ink)]">
-                  Output
-                </h2>
-                <div className={cn("rounded-full border px-4 py-2 text-[11px] font-semibold tracking-[0.16em]", stagePill)}>
-                  {STATUS[appState].toUpperCase()}
-                </div>
-              </div>
+              <h2 className="atelier-display mt-1 truncate text-[clamp(1.2rem,2.2vw,1.7rem)] leading-[0.96] text-[var(--atelier-ink)] opacity-50">
+                {sessionDisplayName !== "Awaiting session" ? sessionDisplayName : "Ready when done"}
+              </h2>
             </div>
 
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-5">
-              <div className="atelier-wave-grid absolute inset-0 opacity-35" />
-              <div className="absolute left-6 top-6 h-20 w-20 rounded-[24px] bg-[rgba(var(--atelier-terracotta-rgb),0.16)]" />
-              <div className="absolute right-6 top-10 h-16 w-24 rounded-[22px] bg-[rgba(var(--atelier-cobalt-rgb),0.14)]" />
-              <div className="absolute bottom-8 left-8 h-14 w-24 rounded-[20px] bg-[rgba(var(--atelier-teal-rgb),0.14)]" />
-              <div className="absolute bottom-8 right-8 h-16 w-16 rounded-[20px] bg-[rgba(var(--atelier-gold-rgb),0.18)]" />
+            {/* Skeleton body — mimics the shape of the loaded TranscriptView */}
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 py-4">
 
-              <div className="relative z-10 max-w-[24rem] rounded-[28px] border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(255,255,255,0.62)] p-6 text-center shadow-[0_22px_56px_rgba(41,25,18,0.12)]">
-                <div className="atelier-kicker">Status</div>
-                <div className="atelier-display mt-4 text-[1.95rem] leading-[0.92] text-[var(--atelier-ink)]">
-                  {appState === "error"
-                    ? "Retry the session."
-                    : isWorking
-                      ? "Composing transcript."
-                      : "Waiting for audio."}
+              {/* Stats chips row */}
+              <div className="flex items-center gap-2">
+                {[56, 44, 68].map((w) => (
+                  <div key={w} className="atelier-shimmer h-6 rounded-[7px]" style={{ width: `${w}px` }} />
+                ))}
+              </div>
+
+              <div className="border-t border-[rgba(var(--atelier-ink-rgb),0.06)]" />
+
+              {/* Speakers skeleton */}
+              <div>
+                <div className="atelier-shimmer mb-2.5 h-2.5 w-14 rounded-full" />
+                <div className="flex h-5 w-full overflow-hidden rounded-full gap-[2px]">
+                  <div className="atelier-shimmer h-full rounded-full" style={{ width: "58%" }} />
+                  <div className="atelier-shimmer h-full rounded-full" style={{ width: "42%" }} />
+                </div>
+                <div className="mt-2 flex gap-4">
+                  {[52, 42].map((w) => (
+                    <div key={w} className="atelier-shimmer h-2.5 rounded-full" style={{ width: `${w}px` }} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Language skeleton */}
+              <div>
+                <div className="atelier-shimmer mb-2.5 h-2.5 w-16 rounded-full" />
+                <div className="flex h-2.5 w-full overflow-hidden rounded-full gap-[2px]">
+                  <div className="atelier-shimmer h-full rounded-full" style={{ width: "63%" }} />
+                  <div className="atelier-shimmer h-full rounded-full" style={{ width: "37%" }} />
+                </div>
+              </div>
+
+              <div className="border-t border-[rgba(var(--atelier-ink-rgb),0.06)]" />
+
+              {/* Conversation turn skeletons */}
+              <div>
+                <div className="atelier-shimmer mb-3 h-2.5 w-24 rounded-full" />
+                <div className="flex flex-col gap-3.5">
+                  {[0.82, 0.55, 0.70, 0.48].map((frac, i) => (
+                    <div key={i} className="flex items-start gap-2.5">
+                      <div className="atelier-shimmer mt-0.5 h-4 w-4 shrink-0 rounded-full" />
+                      <div className="flex flex-1 flex-col gap-1.5">
+                        <div className="atelier-shimmer h-2.5 rounded-full" style={{ width: `${Math.round(frac * 100)}%` }} />
+                        <div className="atelier-shimmer h-2.5 rounded-full" style={{ width: `${Math.round(frac * 66)}%` }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

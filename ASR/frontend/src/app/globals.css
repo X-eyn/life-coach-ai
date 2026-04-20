@@ -291,6 +291,35 @@ button {
   }
 }
 
+/* Processing waveBar animation used in middle-panel processing state */
+@keyframes waveBar {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0.8;
+  }
+}
+
+/* Skeleton shimmer — used in the right panel while transcript is loading */
+.atelier-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(var(--atelier-ink-rgb), 0.05) 0%,
+    rgba(var(--atelier-ink-rgb), 0.11) 50%,
+    rgba(var(--atelier-ink-rgb), 0.05) 100%
+  );
+  background-size: 200% 100%;
+  animation: atelier-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes atelier-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ── Enter animations ─────────────────────────────────────────── */
 @keyframes atelier-enter {
   from {
