@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 const LIBRARY_STORAGE_KEY = "atelier_library";
 const MAX_LIBRARY_SESSIONS = 50;
 
-type AppState = "idle" | "uploading" | "processing" | "done" | "error";
+type AppState = "idle" | "uploading" | "processing" | "finalising" | "done" | "error";
 
 interface TranscriptData {
   bengali: string;
@@ -186,6 +186,7 @@ export default function HomePage() {
   });
   const [isReadingAudio, setIsReadingAudio] = useState(false);
   const [librarySessions, setLibrarySessions] = useState<LibrarySession[]>([]);
+  const [allNodesComplete, setAllNodesComplete] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDisplayName, setSessionDisplayName] = useState<string>("Awaiting session");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -199,7 +200,7 @@ export default function HomePage() {
   const audioPreviewRef = useRef<AudioPreview>({ duration: null, sampleRate: null });
   const processingStartRef = useRef<number | null>(null);
   const transcriptionIdRef = useRef(0);
-  const isWorking = appState === "uploading" || appState === "processing";
+  const isWorking = appState === "uploading" || appState === "processing" || appState === "finalising";
   const hasTranscript = transcript !== null;
 
   // Derive cached evaluation score for the active transcript (if one exists)
@@ -232,7 +233,28 @@ export default function HomePage() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(LIBRARY_STORAGE_KEY);
-      if (stored) setLibrarySessions(JSON.parse(stored) as LibrarySession[]);
+      if (stored) {
+        const sessions = JSON.parse(stored) as LibrarySession[];
+        setLibrarySessions(sessions);
+
+        // Restore the active session when returning from the session workspace
+        const returnId = sessionStorage.getItem('atelier_return_session');
+        if (returnId) {
+          sessionStorage.removeItem('atelier_return_session');
+          const match = sessions.find((s) => s.id === returnId);
+          if (match) {
+            setTranscript(match.transcript);
+            setFile(null);
+            setAudioPreview({ duration: match.duration, sampleRate: null });
+            setError('');
+            setAppState('done');
+            setSessionDisplayName(match.name);
+            setActiveSessionId(match.id);
+            setSpeakerNames(match.speakerNames ?? {});
+            setDetectedNames(new Map());
+          }
+        }
+      }
     } catch {
       // ignore corrupt data
     }
@@ -373,13 +395,21 @@ export default function HomePage() {
       const nextTranscript = await requestTranscription(targetFile);
       if (transcriptionIdRef.current !== runId) return;
       setTranscript(nextTranscript);
-      setAppState("done");
-      // Run vocative name extraction on the completed transcript
+      // Run name extraction immediately (fast CPU op) before the finalising delay
       const parsedTurns = parseTurns(nextTranscript.bengali);
       const detected = extractVocativeNames(parsedTurns);
       setDetectedNames(detected);
       setSpeakerNames({});
       void saveToLibrary(nextTranscript, targetFile, audioPreviewRef.current.duration);
+      // Animate Analyse node completing before revealing the transcript
+      setAppState("finalising");
+      await new Promise<void>((resolve) => setTimeout(resolve, 1400));
+      if (transcriptionIdRef.current !== runId) return;
+      setAllNodesComplete(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 650));
+      if (transcriptionIdRef.current !== runId) return;
+      setAllNodesComplete(false);
+      setAppState("done");
     } catch (reason) {
       if (transcriptionIdRef.current !== runId) return;
       setError(reason instanceof Error ? reason.message.toUpperCase() : "TRANSCRIPTION FAILED");
@@ -420,6 +450,7 @@ export default function HomePage() {
     setAppState("idle");
     setSessionDisplayName("Awaiting session");
     setElapsedSeconds(0);
+    setAllNodesComplete(false);
     setSpeakerNames({});
     setDetectedNames(new Map());
   };
@@ -452,11 +483,14 @@ export default function HomePage() {
           error={error}
           activeSessionId={activeSessionId}
           sessions={librarySessions}
+          hasTranscript={hasTranscript}
+          sessionDisplayName={sessionDisplayName}
           onClear={clear}
           onTranscribeAgain={run}
           onSelectSession={loadFromLibrary}
           onDeleteSession={deleteFromLibrary}
           onRenameSession={renameInLibrary}
+          onUploadNew={() => { clear(); inputRef.current?.click(); }}
         />
 
         {/* ── Middle panel: waveform player / dropzone ────────────────────── */}
@@ -533,68 +567,114 @@ export default function HomePage() {
             ) : isWorking ? (
               /* ── Processing state ── */
               <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden rounded-[24px] bg-[rgba(var(--atelier-ink-rgb),0.018)]">
-                {/* Animated bars — fill left-to-right based on estimated progress */}
-                <div className="flex h-14 items-end justify-center gap-[3px] px-4">
-                  {Array.from({ length: 28 }, (_, i) => {
-                    const fillFrac = audioPreview.duration
-                      ? Math.min(1, elapsedSeconds / Math.max(1, Math.round(audioPreview.duration * 0.45)))
-                      : 0;
-                    const isFilled = (i / 28) < fillFrac;
-                    return (
-                      <div
-                        key={i}
-                        className="w-[3px] rounded-full bg-[var(--atelier-terracotta)] transition-opacity duration-700"
-                        style={{
-                          height: `${20 + Math.abs(Math.sin(i * 0.6)) * 36}%`,
-                          opacity: isFilled ? 0.85 : 0.18,
-                          animationDelay: `${i * 45}ms`,
-                          animation: isFilled ? "waveBar 1.2s ease-in-out infinite alternate" : "none",
-                        }}
-                      />
-                    );
-                  })}
-                </div>
+                {/* Adaptive asymptotic progress — fast start, decelerates, hard-caps at 92% */}
+                {(() => {
+                  // Estimated total based on audio length (0.45s CPU per audio-second).
+                  // Unknown duration falls back to 60s — wide-enough for short clips.
+                  const T = Math.max(1, (audioPreview.duration ?? 60) * 0.45);
+                  // Exponential approach: f(t) = 1 − e^(−t/(T·0.8))
+                  // At t=T·0.8: ~63%  |  t=T·1.6: ~86%  |  never reaches 100%
+                  const frac = Math.min(0.92, 1 - Math.exp(-elapsedSeconds / (T * 0.8)));
+                  const pct = Math.round(frac * 100);
 
-                {/* Elapsed time + estimate */}
-                <div className="flex flex-col items-center gap-1">
-                  <div className="flex items-baseline gap-2 tabular-nums">
-                    <span className="font-mono text-2xl font-semibold tracking-tight text-[rgba(var(--atelier-ink-rgb),0.78)]">
-                      {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
-                    </span>
-                    <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.36)]">elapsed</span>
-                  </div>
-                  {audioPreview.duration && (() => {
-                    const est = Math.round(audioPreview.duration * 0.45);
-                    const rem = Math.max(0, est - elapsedSeconds);
-                    return (
-                      <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.36)]">
-                        {rem > 0 ? `~${rem}s remaining` : "almost done…"}
-                      </p>
-                    );
-                  })()}
-                </div>
+                  return (
+                    <>
+                      {/* Bars — filled left-to-right, filled bars animate */}
+                      <div className="flex h-14 items-end justify-center gap-[3px] px-4">
+                        {Array.from({ length: 28 }, (_, i) => {
+                          const filled = (i / 28) < frac;
+                          return (
+                            <div
+                              key={i}
+                              className="w-[3px] rounded-full bg-[var(--atelier-terracotta)] transition-opacity duration-700"
+                              style={{
+                                height: `${20 + Math.abs(Math.sin(i * 0.6)) * 36}%`,
+                                opacity: filled ? 0.85 : 0.18,
+                                animationDelay: `${i * 45}ms`,
+                                animation: filled ? "waveBar 1.2s ease-in-out infinite alternate" : "none",
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      {/* Elapsed clock + percentage */}
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className="flex items-baseline gap-3 tabular-nums">
+                          <span className="font-mono text-2xl font-semibold tracking-tight text-[rgba(var(--atelier-ink-rgb),0.78)]">
+                            {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
+                          </span>
+                          <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.36)]">elapsed</span>
+                          <span className="font-mono text-sm font-medium text-[rgba(var(--atelier-terracotta-rgb),0.7)]">
+                            {pct >= 90 ? "Almost done" : `${pct}%`}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.38)]">
+                          {appState === "uploading"
+                            ? "Uploading audio..."
+                            : audioPreview.duration && audioPreview.duration > 300
+                              ? "Usually takes a few minutes"
+                              : audioPreview.duration && audioPreview.duration > 60
+                                ? "Usually takes about a minute"
+                                : "Usually takes under a minute"
+                          }
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* Stage tracker with connecting lines */}
                 <div className="flex items-center">
                   {(["Upload", "Transcribe", "Analyse"] as const).map((stage, i) => {
-                    const stageIndex = appState === "uploading" ? 0 : 1;
+                    const stageIndex = allNodesComplete ? 3
+                      : appState === "uploading" ? 0
+                      : appState === "processing" ? 1
+                      : appState === "finalising" ? 2
+                      : 3;
                     const isDone = i < stageIndex;
                     const isActive = i === stageIndex;
                     const isLast = i === 2;
                     return (
                       <div key={stage} className="flex items-center">
                         <div className="flex flex-col items-center gap-1">
-                          <div
-                            className={cn(
-                              "flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold transition-colors",
-                              isActive
-                                ? "animate-pulse border-[var(--atelier-terracotta)] bg-[rgba(207,90,67,0.1)] text-[var(--atelier-terracotta)]"
-                                : isDone
-                                  ? "border-[var(--atelier-teal)] bg-[rgba(31,126,122,0.1)] text-[var(--atelier-teal)]"
-                                  : "border-[rgba(var(--atelier-ink-rgb),0.14)] text-[rgba(var(--atelier-ink-rgb),0.2)]",
+                          <div className="relative">
+                            {/* Spinner ring around the active node */}
+                            {isActive && (
+                              <div
+                                className="absolute -inset-1 animate-spin rounded-full border-2 border-transparent border-t-[var(--atelier-terracotta)]"
+                                style={{ animationDuration: "0.7s" }}
+                              />
                             )}
-                          >
-                            {isDone ? "✓" : i + 1}
+                            {/* Inner circle — re-keyed when done to trigger completePop */}
+                            <div
+                              key={isDone ? `${stage}-done` : `${stage}-else`}
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-bold transition-colors",
+                                isDone
+                                  ? "border-[var(--atelier-teal)] bg-[rgba(31,126,122,0.1)] text-[var(--atelier-teal)]"
+                                  : isActive
+                                    ? "border-[var(--atelier-terracotta)] bg-[rgba(207,90,67,0.1)] text-[var(--atelier-terracotta)]"
+                                    : "border-[rgba(var(--atelier-ink-rgb),0.14)] text-[rgba(var(--atelier-ink-rgb),0.2)]",
+                              )}
+                              style={isDone ? { animation: "completePop 0.45s ease-out both" } : undefined}
+                            >
+                              {isDone ? (
+                                <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none">
+                                  <path
+                                    d="M4.5 10.5 L8 14 L15.5 6.5"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeDasharray="16"
+                                    style={{ animation: "drawTick 0.32s ease-out forwards" }}
+                                  />
+                                </svg>
+                              ) : (
+                                i + 1
+                              )}
+                            </div>
                           </div>
                           <span
                             className={cn(
@@ -612,7 +692,7 @@ export default function HomePage() {
                         {!isLast && (
                           <div
                             className={cn(
-                              "mb-4 h-px w-8 transition-colors",
+                              "mb-4 h-px w-8 transition-colors duration-500",
                               isDone ? "bg-[rgba(31,126,122,0.4)]" : "bg-[rgba(var(--atelier-ink-rgb),0.1)]",
                             )}
                           />
@@ -632,9 +712,30 @@ export default function HomePage() {
                       <span>✓</span><span>Audio decoded &middot; {fmtDuration(audioPreview.duration)}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1.5 text-[rgba(var(--atelier-ink-rgb),0.45)]">
-                    <span className="animate-pulse">⋯</span><span>Transcribing audio</span>
-                  </div>
+                  {(appState === "processing" || appState === "finalising") && (
+                    <div className="flex items-center gap-1.5 text-[var(--atelier-teal)]">
+                      <span>✓</span><span>Uploaded</span>
+                    </div>
+                  )}
+                  {appState === "finalising" && (
+                    <div className="flex items-center gap-1.5 text-[var(--atelier-teal)]">
+                      <span>✓</span><span>Transcribed</span>
+                    </div>
+                  )}
+                  {allNodesComplete ? (
+                    <div className="flex items-center gap-1.5 text-[var(--atelier-teal)]">
+                      <span>✓</span><span>Analysis complete</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[rgba(var(--atelier-ink-rgb),0.45)]">
+                      <span className="animate-pulse">⋯</span>
+                      <span>
+                        {appState === "uploading" ? "Uploading audio"
+                          : appState === "finalising" ? "Analysing"
+                          : "Transcribing audio"}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <p className="font-mono text-[9px] tracking-widest text-[rgba(var(--atelier-ink-rgb),0.22)]">
                   ESC TO CANCEL
@@ -663,7 +764,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        {hasTranscript ? (
+        {hasTranscript && !isWorking ? (
           <TranscriptView
             transcript={transcript}
             className="min-h-0 atelier-enter"

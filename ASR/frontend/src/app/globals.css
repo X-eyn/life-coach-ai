@@ -303,6 +303,30 @@ button {
   }
 }
 
+/* Indeterminate progress bar for left-panel processing state */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* Stage node: tick path draws in like a flick */
+@keyframes drawTick {
+  from { stroke-dashoffset: 16; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+/* Stage node: circle bounces into done state */
+@keyframes completePop {
+  0%   { transform: scale(0.7); opacity: 0.5; }
+  55%  { transform: scale(1.18); }
+  80%  { transform: scale(0.95); }
+  100% { transform: scale(1);   opacity: 1;   }
+}
+
 /* Skeleton shimmer — used in the right panel while transcript is loading */
 .atelier-shimmer {
   background: linear-gradient(

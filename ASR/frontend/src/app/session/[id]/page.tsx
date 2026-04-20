@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Copy, Download, Loader, Check, Search, X, RefreshCw, ChevronDown, ChevronUp, Play, Pause, Volume2 } from 'lucide-react';
+import { X as XIcon, Copy, Download, Loader, Check, Search, X, RefreshCw, ChevronDown, ChevronUp, Play, Pause, Volume2, Flag, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EvaluationComponent } from '@/components/evaluation';
 import { InsightsTab } from '@/components/insights-tab';
@@ -315,10 +315,12 @@ export default function SessionPage() {
     setIsEditingName(false);
   }, [sessionName, session]);
 
-  // Keyboard: Cmd+F for search, Escape to close search
+  // Keyboard: / for search, Escape to close search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f' && activeTab === 'transcript') {
+      const target = e.target as Element;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      if (e.key === '/' && !isInput && activeTab === 'transcript') {
         e.preventDefault();
         setSearchActive(true);
         setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -419,11 +421,21 @@ export default function SessionPage() {
               </button>
               <button
                 onClick={() => router.push('/')}
-                className="atelier-ghost-button inline-flex h-9 items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.08em]"
-                title="Back to library"
+                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] px-3 text-[11px] font-semibold tracking-[0.06em] text-[rgba(var(--atelier-ink-rgb),0.5)] transition-colors hover:bg-[rgba(var(--atelier-ink-rgb),0.05)] hover:text-[var(--atelier-ink)]"
+                title="Upload a new file"
               >
-                <ArrowLeft size={13} />
-                <span>Back</span>
+                <Plus size={13} strokeWidth={2.2} />
+                <span>New</span>
+              </button>
+              <button
+                onClick={() => {
+                  try { sessionStorage.setItem('atelier_return_session', session.id); } catch {}
+                  router.push('/');
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] text-[rgba(var(--atelier-ink-rgb),0.5)] transition-colors hover:bg-[rgba(var(--atelier-ink-rgb),0.05)] hover:text-[var(--atelier-ink)]"
+                title="Close & return to session"
+              >
+                <XIcon size={15} strokeWidth={2} />
               </button>
             </div>
           </div>
@@ -433,24 +445,36 @@ export default function SessionPage() {
       {/* ── Tab Row ────────────────────────────────────────────────────── */}
       <nav className="shrink-0 border-b border-[rgba(var(--atelier-ink-rgb),0.08)] bg-[rgba(255,255,255,0.4)]">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="flex items-center gap-8">
-            {(['transcript', 'evaluation', 'insights'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  'relative py-3 text-[13px] font-bold tracking-[0.12em] uppercase transition-colors',
-                  activeTab === tab
-                    ? 'text-[var(--atelier-ink)]'
-                    : 'text-[rgba(var(--atelier-ink-rgb),0.38)] hover:text-[rgba(var(--atelier-ink-rgb),0.6)]',
-                )}
-              >
-                {tab === 'transcript' ? 'Transcript' : tab === 'evaluation' ? 'Evaluation' : 'Insights'}
-                {activeTab === tab && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--atelier-terracotta)]" />
-                )}
-              </button>
-            ))}
+          <div className="flex items-center">
+            <div className="flex items-center gap-8">
+              {(['transcript', 'evaluation', 'insights'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    'relative py-3 text-[13px] font-bold tracking-[0.12em] uppercase transition-colors',
+                    activeTab === tab
+                      ? 'text-[var(--atelier-ink)]'
+                      : 'text-[rgba(var(--atelier-ink-rgb),0.38)] hover:text-[rgba(var(--atelier-ink-rgb),0.6)]',
+                  )}
+                >
+                  {tab === 'transcript' ? 'Transcript' : tab === 'evaluation' ? 'Evaluation' : 'Insights'}
+                  {activeTab === tab && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[var(--atelier-terracotta)]" />
+                  )}
+                </button>
+              ))}
+            </div>
+            {/* Right-side utility slot */}
+            <div className="ml-auto flex items-center gap-3 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.4)]">
+              {activeTab === 'transcript' && (
+                <>
+                  <span className="tabular-nums">{bengaliTurns.length} turns</span>
+                  <span className="text-[rgba(var(--atelier-ink-rgb),0.15)]">·</span>
+                  <span className="tabular-nums">{totalWords.toLocaleString()} words</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </nav>
@@ -511,8 +535,9 @@ export default function SessionPage() {
       </div>
 
       {/* ── Persistent Player ──────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(255,255,255,0.7)] backdrop-blur-sm">
-        <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
+      <div className="shrink-0 border-t border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[var(--atelier-paper)] relative z-10">
+        <div className="absolute inset-0 bg-[rgba(255,255,255,0.7)] backdrop-blur-sm" />
+        <div className="relative mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
           <audio
             ref={audioRef}
             onTimeUpdate={() => {
@@ -645,21 +670,28 @@ function TranscriptTabContent({
       {/* ── Toolbar ──────────────────────────────────────────────────── */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
         {/* Language toggle */}
-        <div className="inline-flex items-center gap-1 rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(255,255,255,0.5)] p-1">
-          {(['bengali', 'both', 'english'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setLanguageMode(mode)}
-              className={cn(
-                'rounded-full px-3 py-1.5 text-[11px] font-semibold tracking-[0.1em] transition-colors',
-                languageMode === mode
-                  ? 'bg-[rgba(var(--atelier-terracotta-rgb),0.9)] text-white'
-                  : 'text-[rgba(var(--atelier-ink-rgb),0.55)] hover:bg-[rgba(255,255,255,0.6)]',
-              )}
-            >
-              {mode === 'bengali' ? 'Bangla' : mode === 'both' ? 'Both' : 'English'}
-            </button>
-          ))}
+        <div className="flex flex-col gap-1">
+          <div className="inline-flex items-center gap-1 rounded-full border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(255,255,255,0.5)] p-1">
+            {(['bengali', 'both', 'english'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setLanguageMode(mode)}
+                className={cn(
+                  'rounded-full px-3 py-1.5 text-[11px] font-semibold tracking-[0.1em] transition-colors',
+                  languageMode === mode
+                    ? 'bg-[rgba(var(--atelier-terracotta-rgb),0.9)] text-white'
+                    : 'text-[rgba(var(--atelier-ink-rgb),0.55)] hover:bg-[rgba(255,255,255,0.6)]',
+                )}
+              >
+                {mode === 'bengali' ? 'Bangla' : mode === 'both' ? 'Both' : 'English'}
+              </button>
+            ))}
+          </div>
+          {languageMode === 'both' && (
+            <p className="text-[9px] leading-tight text-[rgba(var(--atelier-ink-rgb),0.38)]">
+              English translations are AI-generated · Original Bangla is transcribed from audio
+            </p>
+          )}
         </div>
 
         {/* Search */}
@@ -690,7 +722,7 @@ function TranscriptTabContent({
           >
             <Search size={11} />
             <span>Search</span>
-            <kbd className="ml-1 rounded border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(var(--atelier-ink-rgb),0.04)] px-1 py-0.5 text-[9px] font-mono">⌘F</kbd>
+            <kbd className="ml-1 rounded border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-[rgba(var(--atelier-ink-rgb),0.04)] px-1 py-0.5 text-[9px] font-mono">/</kbd>
           </button>
         )}
 
@@ -742,9 +774,55 @@ function TranscriptTabContent({
           const isLong = turn.wordCount > WORDS_COLLAPSE_THRESHOLD;
           const isExpanded = expandedTurns.has(turn.id);
           const speakerName = session.speakerNames?.[turn.speakerIndex] || turn.speaker;
+          const isInterjection = turnDuration < 3 && turn.wordCount <= 8;
 
           // For "both" mode, find corresponding english turn
           const englishTurn = languageMode === 'both' ? englishTurns[originalIndex] : null;
+
+          // Interjection: compact single-line bubble for very short turns
+          if (isInterjection) {
+            return (
+              <div
+                key={turn.id}
+                data-turn-index={originalIndex}
+                className={cn(
+                  'group relative flex items-center gap-2 rounded-[8px] py-1.5 pl-3 pr-2 transition-colors duration-300',
+                  isActive && 'bg-[rgba(var(--atelier-terracotta-rgb),0.06)]',
+                )}
+                style={{ borderLeft: `3px solid ${speakerColor(turn.speakerIndex)}` }}
+              >
+                <span className="text-[11px] font-semibold text-[rgba(var(--atelier-ink-rgb),0.55)]">{speakerName}</span>
+                <span className="text-[12px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
+                  {highlightText(turn.text, searchQuery)}
+                </span>
+                {showTimestamps && audioDuration > 0 && (
+                  <button
+                    onClick={() => onJumpToTurn(originalIndex)}
+                    className="ml-auto shrink-0 cursor-pointer text-[10px] tabular-nums text-[rgba(var(--atelier-ink-rgb),0.3)] underline decoration-dotted underline-offset-2 transition-colors hover:text-[var(--atelier-terracotta)]"
+                    title={`Seek to ${fmtTime(timestamp)}`}
+                  >
+                    {fmtTime(timestamp)}
+                  </button>
+                )}
+                {/* Bilingual inline for interjections */}
+                {languageMode === 'both' && englishTurn && englishTurn.text !== turn.text && (
+                  <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.35)] decoration-dotted" title="AI-generated translation">
+                    — {englishTurn.text}
+                  </span>
+                )}
+                {/* Hover actions */}
+                <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    onClick={async () => { await navigator.clipboard.writeText(turn.text); }}
+                    className="rounded-md bg-white/80 p-1 text-[rgba(var(--atelier-ink-rgb),0.4)] shadow-sm transition-colors hover:text-[var(--atelier-ink)]"
+                    title="Copy turn"
+                  >
+                    <Copy size={10} />
+                  </button>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div
@@ -764,8 +842,8 @@ function TranscriptTabContent({
                     <span className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.3)]">·</span>
                     <button
                       onClick={() => onJumpToTurn(originalIndex)}
-                      className="text-[11px] font-medium tabular-nums text-[rgba(var(--atelier-ink-rgb),0.4)] transition-colors hover:text-[var(--atelier-terracotta)]"
-                      title="Jump to this moment"
+                      className="cursor-pointer text-[11px] font-medium tabular-nums text-[rgba(var(--atelier-ink-rgb),0.4)] underline decoration-dotted underline-offset-2 transition-colors hover:text-[var(--atelier-terracotta)] hover:decoration-solid"
+                      title={`Seek to ${fmtTime(timestamp)}`}
                     >
                       {fmtTime(timestamp)}
                     </button>
@@ -803,7 +881,7 @@ function TranscriptTabContent({
               {/* English translation in "both" mode */}
               {languageMode === 'both' && englishTurn && (
                 <div className="mt-2 border-l-2 border-[rgba(var(--atelier-ink-rgb),0.08)] pl-3">
-                  <p className="text-[12px] leading-relaxed text-[rgba(var(--atelier-ink-rgb),0.52)]">
+                  <p className="text-[12px] leading-relaxed text-[rgba(var(--atelier-ink-rgb),0.52)] decoration-dotted" title="AI-generated translation">
                     {highlightText(englishTurn.text, searchQuery)}
                   </p>
                 </div>
@@ -818,6 +896,22 @@ function TranscriptTabContent({
                 >
                   <Copy size={11} />
                 </button>
+                {languageMode === 'both' && englishTurn && (
+                  <button
+                    onClick={() => {
+                      // Store report in localStorage for later collection
+                      try {
+                        const reports = JSON.parse(localStorage.getItem('translation_reports') || '[]');
+                        reports.push({ sessionId: session.id, turnId: turn.id, original: turn.text, translation: englishTurn.text, timestamp: Date.now() });
+                        localStorage.setItem('translation_reports', JSON.stringify(reports));
+                      } catch { /* ignore */ }
+                    }}
+                    className="rounded-md bg-white/80 p-1 text-[rgba(var(--atelier-ink-rgb),0.35)] shadow-sm transition-colors hover:text-[rgba(var(--atelier-terracotta-rgb),0.8)]"
+                    title="Report bad translation"
+                  >
+                    <Flag size={10} />
+                  </button>
+                )}
               </div>
             </div>
           );

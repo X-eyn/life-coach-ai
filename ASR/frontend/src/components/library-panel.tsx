@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useMemo, useEffect } from 'react';
-import { X, Search, MoreHorizontal, Trash2, Pencil, Download } from 'lucide-react';
+import { X, Search, MoreHorizontal, Trash2, Pencil, Download, Upload } from 'lucide-react';
 import { MiniWaveform } from '@/components/ui/mini-waveform';
 import { cn } from '@/lib/utils';
 import type { MiniWaveformSpeaker } from '@/components/ui/mini-waveform';
@@ -175,7 +175,7 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
           </p>
         )}
         <p className="mt-0.5 truncate text-[11px] leading-[1.3] text-[rgba(var(--atelier-ink-rgb),0.42)]">
-          {fmtDur(session.duration)} · {speakerLabel} · {timeAgo(session.createdAt)}
+          {fmtDur(session.duration)} · {timeAgo(session.createdAt)}
           {session.evaluationScore != null && (
             <span
               className={cn(
@@ -248,18 +248,21 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
 
 interface LibraryPanelProps {
   file: File | null;
-  appState: 'idle' | 'uploading' | 'processing' | 'done' | 'error';
+  appState: 'idle' | 'uploading' | 'processing' | 'finalising' | 'done' | 'error';
   audioPreview: { duration: number | null; sampleRate: number | null };
   isReadingAudio: boolean;
   elapsedSeconds: number;
   error: string;
   activeSessionId: string | null;
   sessions: LibrarySession[];
+  hasTranscript: boolean;
+  sessionDisplayName: string;
   onClear: () => void;
   onTranscribeAgain: () => void;
   onSelectSession: (session: LibrarySession) => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, name: string) => void;
+  onUploadNew: () => void;
 }
 
 export function LibraryPanel({
@@ -271,11 +274,14 @@ export function LibraryPanel({
   error,
   activeSessionId,
   sessions,
+  hasTranscript,
+  sessionDisplayName,
   onClear,
   onTranscribeAgain,
   onSelectSession,
   onDeleteSession,
   onRenameSession,
+  onUploadNew,
 }: LibraryPanelProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -287,16 +293,9 @@ export function LibraryPanel({
     return () => clearInterval(id);
   }, []);
 
-  const isWorking = appState === 'uploading' || appState === 'processing';
+  const isWorking = appState === 'uploading' || appState === 'processing' || appState === 'finalising';
   const hasFile = Boolean(file);
   const showDropzone = !hasFile && !isWorking;
-
-  // Computed transcription progress estimate
-  const processingProgress = useMemo(() => {
-    if (!audioPreview.duration) return null;
-    const est = Math.max(1, Math.round(audioPreview.duration * 0.45));
-    return Math.min(99, Math.round((elapsedSeconds / est) * 100));
-  }, [elapsedSeconds, audioPreview.duration]);
 
   // '/' or Cmd+F focuses search when library is visible
   useEffect(() => {
@@ -325,8 +324,8 @@ export function LibraryPanel({
       <div className="shrink-0 px-4 pt-4 pb-1">
         <div className="atelier-kicker mb-2.5 text-[9px] tracking-[0.12em]">Now</div>
 
-        {showDropzone ? (
-          /* No file — compact empty hint; dropzone lives in the middle panel */
+        {showDropzone && !hasTranscript ? (
+          /* No file, no transcript — empty hint */
           <div className="px-1 py-1">
             <p className="text-[13px] font-medium text-[rgba(var(--atelier-ink-rgb),0.32)]">—</p>
             <p className="mt-0.5 text-[12px] text-[rgba(var(--atelier-ink-rgb),0.38)]">No file loaded</p>
@@ -334,6 +333,35 @@ export function LibraryPanel({
               Drop a file in the centre
               <span aria-hidden>→</span>
             </p>
+          </div>
+
+        ) : showDropzone && hasTranscript ? (
+          /* Past session loaded from library (no file, but has transcript) */
+          <div className="rounded-[18px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(var(--atelier-ink-rgb),0.018)] px-3.5 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate text-[13px] font-semibold leading-5 text-[var(--atelier-ink)]">
+                {sessionDisplayName}
+              </p>
+              <button
+                type="button"
+                onClick={onClear}
+                className="mt-0.5 shrink-0 text-[rgba(var(--atelier-ink-rgb),0.28)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.6)]"
+                aria-label="Clear"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.42)]">From library</p>
+            <div className="mt-3 border-t border-[rgba(var(--atelier-ink-rgb),0.08)] pt-2.5">
+              <button
+                type="button"
+                onClick={onUploadNew}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.4)] underline-offset-2 transition-colors hover:text-[rgba(207,90,67,0.78)] hover:underline"
+              >
+                <Upload size={11} />
+                Upload new file →
+              </button>
+            </div>
           </div>
 
         ) : isWorking ? (
@@ -346,9 +374,8 @@ export function LibraryPanel({
               {file?.name.replace(/\.[^/.]+$/, '') ?? 'Processing…'}
             </p>
             <div className="mt-2 flex items-center justify-between gap-2">
-              <p className="font-mono text-[11px] text-[rgba(var(--atelier-ink-rgb),0.45)]">
-                Transcribing
-                {processingProgress !== null ? ` · ${processingProgress}%` : '…'}
+              <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.45)]">
+                {appState === 'uploading' ? 'Uploading...' : appState === 'finalising' ? 'Analysing...' : 'Transcribing...'}
               </p>
               <button
                 type="button"
@@ -358,11 +385,10 @@ export function LibraryPanel({
                 Cancel
               </button>
             </div>
-            {/* Thin progress bar */}
+            {/* Indeterminate progress bar — visual only, no fake percentage */}
             <div className="mt-2.5 h-[3px] w-full overflow-hidden rounded-full bg-[rgba(var(--atelier-ink-rgb),0.08)]">
               <div
-                className="h-full rounded-full bg-[var(--atelier-terracotta)] transition-all duration-1000"
-                style={{ width: `${processingProgress ?? 0}%` }}
+                className="h-full w-1/3 rounded-full bg-[var(--atelier-terracotta)] animate-[indeterminate_1.5s_ease-in-out_infinite]"
               />
             </div>
           </div>

@@ -576,7 +576,7 @@ export function TranscriptView({
           </div>
           <div className="mt-1.5 flex items-center justify-between">
             <p className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.34)]">
-              {turns.length} turns · longer bars = longer turns · click to jump
+              {turns.length} turns · click any bar to jump
             </p>
             <div className="flex items-center gap-1 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.22)]">
               <span>0:00</span>
@@ -596,7 +596,7 @@ export function TranscriptView({
                   key={idx}
                   type="button"
                   onClick={() => handleTimelineClick(idx)}
-                  className="group flex items-start gap-2.5 rounded-[10px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.38)] px-3 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
+                  className="group flex w-full items-start gap-2 rounded-[10px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.38)] px-2.5 py-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
                 >
                   <span
                     className="mt-[3px] h-2 w-2 shrink-0 rounded-full"
