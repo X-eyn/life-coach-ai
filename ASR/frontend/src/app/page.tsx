@@ -1,9 +1,9 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, Upload } from "lucide-react";
 import { TranscriptView, parseTurns, type Turn } from "@/components/transcript-view";
-import { TranscriptDetailModal } from "@/components/transcript-detail-modal";
 import { LibraryPanel, type LibrarySession } from "@/components/library-panel";
 import { WaveformPlayer } from "@/components/ui/waveform-player";
 import { decodeWaveformPeaks, MINI_PEAKS_COUNT } from "@/lib/audio-utils";
@@ -174,6 +174,7 @@ async function buildAudioPreview(file: File): Promise<AudioPreview> {
 
 
 export default function HomePage() {
+  const router = useRouter();
   const [appState, setAppState] = useState<AppState>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [transcript, setTranscript] = useState<TranscriptData | null>(null);
@@ -184,8 +185,6 @@ export default function HomePage() {
     sampleRate: null,
   });
   const [isReadingAudio, setIsReadingAudio] = useState(false);
-  const [isTranscriptDetailOpen, setIsTranscriptDetailOpen] = useState(false);
-  const [initialTurnIndex, setInitialTurnIndex] = useState<number | undefined>(undefined);
   const [librarySessions, setLibrarySessions] = useState<LibrarySession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDisplayName, setSessionDisplayName] = useState<string>("Awaiting session");
@@ -202,6 +201,27 @@ export default function HomePage() {
   const transcriptionIdRef = useRef(0);
   const isWorking = appState === "uploading" || appState === "processing";
   const hasTranscript = transcript !== null;
+
+  // Derive cached evaluation score for the active transcript (if one exists)
+  const cachedEvaluationScore = useMemo(() => {
+    if (!transcript) return null;
+    try {
+      const combined = transcript.bengali + transcript.english;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const key = `evaluation_${Math.abs(hash).toString(36)}`;
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        const data = JSON.parse(cached);
+        return typeof data.overall_score === 'number' ? data.overall_score : null;
+      }
+    } catch {}
+    return null;
+  }, [transcript]);
 
   // Keep a ref to the latest audioPreview so transcribeFile can read it without a stale closure
   useEffect(() => {
@@ -247,20 +267,6 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [file]);
-
-  // Handle escape key to close modal
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isTranscriptDetailOpen) {
-        setIsTranscriptDetailOpen(false);
-      }
-    };
-
-    if (isTranscriptDetailOpen) {
-      window.addEventListener("keydown", handleEscape);
-      return () => window.removeEventListener("keydown", handleEscape);
-    }
-  }, [isTranscriptDetailOpen]);
 
   // Elapsed counter while transcribing
   useEffect(() => {
@@ -436,7 +442,7 @@ export default function HomePage() {
 
   return (
     <main className="h-screen overflow-hidden p-3 sm:p-4">
-      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[320px_minmax(340px,1fr)_minmax(340px,1fr)]">
+      <div className="atelier-shell relative mx-auto grid h-full w-full max-w-[1680px] gap-4 overflow-hidden rounded-[32px] p-4 sm:p-5 min-[980px]:grid-cols-[22%_minmax(340px,1fr)_30%]">
         <LibraryPanel
           file={file}
           appState={appState}
@@ -665,6 +671,7 @@ export default function HomePage() {
             onJumpToTime={(t) => { waveformSeekRef.current?.seekTo(t); }}
             detectedNames={detectedNames}
             speakerNames={speakerNames}
+            evaluationScore={cachedEvaluationScore}
             onSpeakerNamesChange={(names) => {
               setSpeakerNames(names);
               // Persist names to the active library session
@@ -678,8 +685,23 @@ export default function HomePage() {
                 });
               }
             }}
-            onExpand={() => { setInitialTurnIndex(undefined); setIsTranscriptDetailOpen(true); }}
-            onExpandToTurn={(i) => { setInitialTurnIndex(i); setIsTranscriptDetailOpen(true); }}
+            onExpand={() => {
+              if (activeSessionId) {
+                // Store audio URL in sessionStorage so the session page can play it
+                if (file) {
+                  try { sessionStorage.setItem(`session_audio_${activeSessionId}`, URL.createObjectURL(file)); } catch {}
+                }
+                router.push(`/session/${activeSessionId}`);
+              }
+            }}
+            onExpandToTurn={(i) => {
+              if (activeSessionId) {
+                if (file) {
+                  try { sessionStorage.setItem(`session_audio_${activeSessionId}`, URL.createObjectURL(file)); } catch {}
+                }
+                router.push(`/session/${activeSessionId}#turn-${i}`);
+              }
+            }}
           />
         ) : (
           <section className="atelier-panel flex min-h-0 flex-col overflow-hidden rounded-[28px]">
@@ -744,17 +766,6 @@ export default function HomePage() {
           </section>
         )}
       </div>
-
-      {/* Transcript Detail Modal */}
-      {transcript && (
-        <TranscriptDetailModal
-          isOpen={isTranscriptDetailOpen}
-          onClose={() => setIsTranscriptDetailOpen(false)}
-          transcript={transcript}
-          audioUrl={file ? URL.createObjectURL(file) : undefined}
-          initialTurnIndex={initialTurnIndex}
-        />
-      )}
     </main>
   );
 }

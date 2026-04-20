@@ -20,6 +20,8 @@ export interface LibrarySession {
   languageSplit: { bn: number; en: number };
   /** User-confirmed speaker names keyed by speakerIndex */
   speakerNames?: Record<number, string>;
+  /** Cached overall evaluation score (1-5) */
+  evaluationScore?: number | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,6 +176,18 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
         )}
         <p className="mt-0.5 truncate text-[11px] leading-[1.3] text-[rgba(var(--atelier-ink-rgb),0.42)]">
           {fmtDur(session.duration)} · {speakerLabel} · {timeAgo(session.createdAt)}
+          {session.evaluationScore != null && (
+            <span
+              className={cn(
+                'ml-1.5 inline-block rounded-[4px] px-1 py-px font-mono text-[9px] font-bold leading-none',
+                session.evaluationScore >= 4 ? 'bg-emerald-100 text-emerald-700'
+                  : session.evaluationScore >= 3 ? 'bg-amber-100 text-amber-700'
+                  : 'bg-red-100 text-red-700'
+              )}
+            >
+              {session.evaluationScore.toFixed(1)}
+            </span>
+          )}
         </p>
       </button>
 

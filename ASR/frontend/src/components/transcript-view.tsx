@@ -31,6 +31,8 @@ interface TranscriptViewProps {
   speakerNames?: Record<number, string>;
   /** Called after user confirms or edits detected names. */
   onSpeakerNamesChange?: (names: Record<number, string>) => void;
+  /** Cached evaluation score to show mini summary in right panel */
+  evaluationScore?: number | null;
 }
 
 export interface Turn {
@@ -182,6 +184,7 @@ export function TranscriptView({
   transcript, className, onExpand, onExpandToTurn,
   audioDuration, onJumpToTime,
   detectedNames, speakerNames, onSpeakerNamesChange,
+  evaluationScore,
 }: TranscriptViewProps) {
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -432,24 +435,6 @@ export function TranscriptView({
         </div>
       )}
 
-      {/* ── AI name detection confirmation strip ──────────────────── */}
-      {pendingHighConfidence.length > 0 && (
-        <div className="mx-5 mb-2 flex items-center gap-2 rounded-[10px] border border-[rgba(var(--atelier-teal-rgb),0.2)] bg-[rgba(var(--atelier-teal-rgb),0.06)] px-3 py-2">
-          <Sparkles size={11} className="shrink-0 text-[var(--atelier-teal)]" />
-          <p className="min-w-0 flex-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
-            Detected: {pendingHighConfidence.map((p) => p.name).join(', ')}
-          </p>
-          <button type="button" onClick={confirmDetectedNames}
-            className="shrink-0 rounded-[6px] bg-[var(--atelier-teal)] px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-80">
-            Confirm
-          </button>
-          <button type="button" onClick={() => setDetectionDismissed(true)}
-            className="shrink-0 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.65)]">
-            Dismiss
-          </button>
-        </div>
-      )}
-
       <div className="mx-5 border-t border-[rgba(var(--atelier-ink-rgb),0.07)]" />
 
       {/* ── Main insights — no scroll ───────────────────────────────── */}
@@ -638,6 +623,38 @@ export function TranscriptView({
           </div>
         )}
       </div>
+
+      {/* ── Mini Evaluation Score ─────────────────────────────────────── */}
+      {evaluationScore != null && (
+        <div className="shrink-0 mx-5 mb-2">
+          <SectionLabel>Evaluation</SectionLabel>
+          <button
+            type="button"
+            onClick={onExpand}
+            className="flex w-full items-center gap-3 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.4)] px-3 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
+          >
+            <span
+              className={cn(
+                'flex h-8 w-8 items-center justify-center rounded-[8px] text-[13px] font-bold',
+                evaluationScore >= 4 ? 'bg-emerald-100 text-emerald-700'
+                  : evaluationScore >= 3 ? 'bg-amber-100 text-amber-700'
+                  : 'bg-red-100 text-red-700'
+              )}
+            >
+              {evaluationScore.toFixed(1)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <span className="text-[12px] font-medium text-[rgba(var(--atelier-ink-rgb),0.65)]">
+                {evaluationScore >= 4 ? 'Good' : evaluationScore >= 3 ? 'Satisfactory' : 'Needs Improvement'}
+              </span>
+              <span className="block text-[10px] text-[rgba(var(--atelier-ink-rgb),0.35)]">
+                AI teaching quality score
+              </span>
+            </div>
+            <ArrowRight size={13} className="shrink-0 text-[rgba(var(--atelier-ink-rgb),0.25)]" />
+          </button>
+        </div>
+      )}
 
       {/* ── Read CTA ──────────────────────────────────────────────────── */}
       <div className="border-t border-[rgba(var(--atelier-ink-rgb),0.07)] p-4">

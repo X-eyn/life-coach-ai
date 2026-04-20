@@ -59,7 +59,17 @@ const SPEAKER_COLORS = {
   3: { dot: 'bg-blue-500', name: 'Speaker 4' },
 };
 
-export default function TranscriptDetailPage() {
+import { Suspense } from 'react';
+
+export default function TranscriptDetailPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><p>Loading...</p></div>}>
+      <TranscriptDetailPage />
+    </Suspense>
+  );
+}
+
+function TranscriptDetailPage() {
   const searchParams = useSearchParams();
   const wordsParam = searchParams.get('words') || '0';
   const turnsParam = searchParams.get('turns') || '0';

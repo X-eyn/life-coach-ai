@@ -457,31 +457,6 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
 
   // ── Derived display values ─────────────────────────────────────────────────
 
-  // Unique speakers for the legend
-  const speakerLegend = (() => {
-    const map = new Map<number, string>();
-    for (const t of turns) {
-      if (!map.has(t.speakerIndex)) map.set(t.speakerIndex, t.speaker);
-    }
-    return [...map.entries()].map(([idx, speaker]) => ({ idx, speaker }));
-  })();
-
-  // Merged consecutive same-speaker segments for the color strip
-  const colorStrip = (() => {
-    if (turns.length === 0) return [];
-    const merged: { speakerIndex: number; words: number }[] = [];
-    for (const t of turns) {
-      const last = merged[merged.length - 1];
-      if (last && last.speakerIndex === t.speakerIndex) {
-        last.words += t.wordCount;
-      } else {
-        merged.push({ speakerIndex: t.speakerIndex, words: t.wordCount });
-      }
-    }
-    const total = merged.reduce((s, m) => s + m.words, 0) || 1;
-    return merged.map((m) => ({ ...m, pct: (m.words / total) * 100 }));
-  })();
-
   const hoveredSpeaker =
     hoverInfo !== null
       ? turns.find((t) => t.speakerIndex === hoverInfo.speakerIndex)?.speaker ?? null
@@ -492,39 +467,9 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
 
-      {/* Speaker legend */}
-      {speakerLegend.length > 1 && (
-        <div className="flex items-center gap-3 px-0.5">
-          {speakerLegend.map(({ idx, speaker }) => (
-            <div key={idx} className="flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ background: SPEAKER_COLORS[idx % SPEAKER_COLORS.length] }}
-              />
-              <span className="text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.6)]">
-                {speaker}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Speaker legend removed — redundant with right panel header */}
 
-      {/* Speaker color distribution strip — only for multi-speaker audio */}
-      {colorStrip.length > 1 && (
-        <div className="flex h-[2px] w-full overflow-hidden rounded-full gap-[1px] opacity-50">
-          {colorStrip.map((seg, i) => (
-            <div
-              key={i}
-              className="h-full rounded-[2px]"
-              style={{
-                width: `${seg.pct}%`,
-                background: SPEAKER_COLORS[seg.speakerIndex % SPEAKER_COLORS.length],
-                opacity: 0.55,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Speaker color strip removed — amplitude bars are already speaker-colored */}
 
       {/* Waveform canvas */}
       <div

@@ -376,3 +376,71 @@ button {
     will-change: auto;
   }
 }
+
+/* ── Session page seek / volume sliders ───────────────────────────────────── */
+
+.session-seek-bar,
+.session-volume-bar {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.session-seek-bar {
+  background: linear-gradient(
+    to right,
+    var(--atelier-terracotta) 0%,
+    var(--atelier-terracotta) var(--seek-pct, 0%),
+    rgba(var(--atelier-ink-rgb), 0.1) var(--seek-pct, 0%),
+    rgba(var(--atelier-ink-rgb), 0.1) 100%
+  );
+}
+
+.session-volume-bar {
+  background: linear-gradient(
+    to right,
+    rgba(var(--atelier-ink-rgb), 0.45) 0%,
+    rgba(var(--atelier-ink-rgb), 0.45) var(--vol-pct, 100%),
+    rgba(var(--atelier-ink-rgb), 0.1) var(--vol-pct, 100%),
+    rgba(var(--atelier-ink-rgb), 0.1) 100%
+  );
+}
+
+.session-seek-bar::-webkit-slider-thumb,
+.session-volume-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--atelier-ink);
+  border: 2px solid var(--atelier-paper);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.session-seek-bar::-webkit-slider-thumb:hover,
+.session-volume-bar::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.session-seek-bar::-moz-range-thumb,
+.session-volume-bar::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--atelier-ink);
+  border: 2px solid var(--atelier-paper);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  cursor: pointer;
+}
+
+.session-seek-bar::-moz-range-track,
+.session-volume-bar::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+}
