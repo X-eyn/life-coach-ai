@@ -3,6 +3,30 @@
 export const SPEAKER_COLORS = ['#cf5a43', '#1f7e7a', '#3456d6', '#c9900e'] as const;
 
 export const MINI_PEAKS_COUNT = 30;
+export const FULL_PEAKS_COUNT = 600;
+
+/**
+ * Downsamples a peaks array to `count` entries using average pooling within each window.
+ * Average pooling preserves the loud/quiet contrast so the thumbnail matches the main waveform
+ * (max-pooling would collapse everything to the envelope, making bars look uniformly tall).
+ */
+export function downsamplePeaks(peaks: number[], count: number): number[] {
+  if (peaks.length === 0) return Array.from({ length: count }, () => 0.3);
+  if (peaks.length <= count) {
+    return Array.from({ length: count }, (_, i) => {
+      const src = Math.min(Math.floor((i / count) * peaks.length), peaks.length - 1);
+      return peaks[src] ?? 0;
+    });
+  }
+  const ratio = peaks.length / count;
+  return Array.from({ length: count }, (_, i) => {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(Math.floor((i + 1) * ratio), peaks.length);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += peaks[j] ?? 0;
+    return sum / Math.max(1, end - start);
+  });
+}
 
 /**
  * Decodes `count` amplitude peak samples from an audio File using Web Audio API.

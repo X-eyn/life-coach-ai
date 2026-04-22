@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Upload } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+
+const SPRING = { type: 'spring' as const, stiffness: 360, damping: 28 };
 import { TranscriptView, parseTurns, type Turn } from "@/components/transcript-view";
 import { LibraryPanel, type LibrarySession } from "@/components/library-panel";
 import { WaveformPlayer } from "@/components/ui/waveform-player";
-import { decodeWaveformPeaks, MINI_PEAKS_COUNT } from "@/lib/audio-utils";
+import { decodeWaveformPeaks, downsamplePeaks, MINI_PEAKS_COUNT, FULL_PEAKS_COUNT } from "@/lib/audio-utils";
 import { extractVocativeNames, type DetectedName } from "@/lib/speaker-names";
 import { cn } from "@/lib/utils";
 
@@ -319,8 +322,27 @@ export default function HomePage() {
     const banglaCount = bengaliWords.filter((w) => /[\u0980-\u09FF]/.test(w)).length;
     const bnPct = bengaliWords.length ? Math.round((banglaCount / bengaliWords.length) * 100) : 50;
 
-    // Decode mini waveform peaks — runs after UI is already updated
-    const waveformPeaks = await decodeWaveformPeaks(targetFile, MINI_PEAKS_COUNT).catch(() => [] as number[]);
+    // Decode full-resolution peaks once — both visualizers derive from the same source
+    const fullWaveformPeaks = await decodeWaveformPeaks(targetFile, FULL_PEAKS_COUNT).catch(() => [] as number[]);
+    // Mini peaks are a downsampled view of the full peaks so they match visually
+    const waveformPeaks = fullWaveformPeaks.length > 0
+      ? downsamplePeaks(fullWaveformPeaks, MINI_PEAKS_COUNT)
+      : [];
+
+    // Per-bar speaker index — identical mapToBars logic used by WaveformPlayer so that
+    // the mini thumbnail has exactly the same speaker coloring as the main visualizer.
+    const totalTurnWords = turns.reduce((s, t) => s + t.wordCount, 0) || 1;
+    let cumWords = 0;
+    const turnSegs = turns.map((t) => {
+      const start = cumWords / totalTurnWords;
+      cumWords += t.wordCount;
+      return { start, end: cumWords / totalTurnWords, speakerIndex: t.speakerIndex };
+    });
+    const fullBarSpeakers: number[] = fullWaveformPeaks.map((_, i) => {
+      const pos = i / Math.max(1, fullWaveformPeaks.length);
+      const seg = turnSegs.find((s) => pos >= s.start && pos < s.end) ?? turnSegs[turnSegs.length - 1];
+      return seg?.speakerIndex ?? 0;
+    });
 
     const entry: LibrarySession = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -330,6 +352,8 @@ export default function HomePage() {
       duration,
       wordCount: countWords(`${nextTranscript.bengali} ${nextTranscript.english}`),
       waveformPeaks,
+      fullWaveformPeaks,
+      fullBarSpeakers,
       speakers,
       languageSplit: { bn: bnPct, en: 100 - bnPct },
     };
@@ -401,13 +425,27 @@ export default function HomePage() {
       setDetectedNames(detected);
       setSpeakerNames({});
       void saveToLibrary(nextTranscript, targetFile, audioPreviewRef.current.duration);
-      // Animate Analyse node completing before revealing the transcript
+
+      // ── Analyse stage: spin for a duration that feels proportional to the file ──
+      // Base scales with √(duration) so short clips feel quick and long clips feel
+      // like something real is happening — but it never drags past ~3 s.
+      // A ±30 % random multiplier means no two runs feel identical.
+      const dur = audioPreviewRef.current.duration ?? 30;
+      const wordCount = parseTurns(nextTranscript.bengali).reduce((s, t) => s + t.wordCount, 0);
+      const baseMs = 600 + Math.sqrt(Math.max(1, dur)) * 62 + Math.sqrt(wordCount) * 8;
+      const jitter = 0.70 + Math.random() * 0.60; // 0.70 – 1.30 ×
+      const analyseMs = Math.max(800, Math.min(Math.round(baseMs * jitter), 3000));
+
       setAppState("finalising");
-      await new Promise<void>((resolve) => setTimeout(resolve, 1400));
+      await new Promise<void>((resolve) => setTimeout(resolve, analyseMs));
       if (transcriptionIdRef.current !== runId) return;
+
+      // All three nodes flash ✓ — hold briefly so the eye can register it
       setAllNodesComplete(true);
-      await new Promise<void>((resolve) => setTimeout(resolve, 650));
+      const settleMs = 180 + Math.floor(Math.random() * 340); // 180 – 520 ms
+      await new Promise<void>((resolve) => setTimeout(resolve, settleMs));
       if (transcriptionIdRef.current !== runId) return;
+
       setAllNodesComplete(false);
       setAppState("done");
     } catch (reason) {
@@ -461,6 +499,13 @@ export default function HomePage() {
   };
 
   const totalTranscriptWords = transcript ? countWords(`${transcript.bengali} ${transcript.english}`) : 0;
+
+  // Resolve saved waveform peaks for the active library session (used when no file is loaded)
+  const activeSessionPeaks = useMemo(() => {
+    if (file) return undefined;
+    const session = librarySessions.find((s) => s.id === activeSessionId);
+    return session?.fullWaveformPeaks ?? (session?.waveformPeaks?.length ? session.waveformPeaks : undefined);
+  }, [file, librarySessions, activeSessionId]);
 
   // Parse turns for WaveformPlayer speaker colouring
   const waveformTurns = transcript
@@ -549,7 +594,7 @@ export default function HomePage() {
                     </span>
                   ))}
                 </div>
-                <button
+                <motion.button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -559,9 +604,11 @@ export default function HomePage() {
                       .catch(() => inputRef.current?.click());
                   }}
                   className="text-[11px] text-[rgba(var(--atelier-ink-rgb),0.38)] underline-offset-2 transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.6)] hover:underline"
+                  whileTap={{ scale: 0.94 }}
+                  transition={SPRING}
                 >
                   Try with sample
-                </button>
+                </motion.button>
               </div>
 
             ) : isWorking ? (
@@ -746,6 +793,7 @@ export default function HomePage() {
               /* ── Loaded state: speaker-coloured interactive waveform ── */
               <WaveformPlayer
                 file={file}
+                peaks={activeSessionPeaks}
                 turns={waveformTurns}
                 duration={audioPreview.duration}
                 seekRef={waveformSeekRef}
@@ -755,17 +803,26 @@ export default function HomePage() {
             ) : null}
 
             {/* Error banner */}
-            {appState === "error" && (
-              <div className="flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.07)] px-3 py-2.5">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--atelier-terracotta)]" />
-                <p className="text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.75)]">{error || "Something went wrong."}</p>
-              </div>
-            )}
+            <AnimatePresence>
+              {appState === "error" && (
+                <motion.div
+                  className="flex items-start gap-2 rounded-[12px] border border-[rgba(var(--atelier-terracotta-rgb),0.2)] bg-[rgba(var(--atelier-terracotta-rgb),0.07)] px-3 py-2.5"
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={SPRING}
+                >
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--atelier-terracotta)]" />
+                  <p className="text-xs leading-5 text-[rgba(var(--atelier-ink-rgb),0.75)]">{error || "Something went wrong."}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </section>
 
         {hasTranscript && !isWorking ? (
           <TranscriptView
+            key={activeSessionId ?? 'pending'}
             transcript={transcript}
             className="min-h-0 atelier-enter"
             audioDuration={audioPreview.duration ?? undefined}

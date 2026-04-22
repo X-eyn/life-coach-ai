@@ -2,9 +2,13 @@
 
 import { useRef, useState, useMemo, useEffect } from 'react';
 import { X, Search, MoreHorizontal, Trash2, Pencil, Download, Upload } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { MiniWaveform } from '@/components/ui/mini-waveform';
 import { cn } from '@/lib/utils';
 import type { MiniWaveformSpeaker } from '@/components/ui/mini-waveform';
+
+const SPRING = { type: 'spring' as const, stiffness: 380, damping: 28 };
+const SPRING_FAST = { type: 'spring' as const, stiffness: 500, damping: 32 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +20,12 @@ export interface LibrarySession {
   wordCount: number;
   transcript: { bengali: string; english: string };
   waveformPeaks: number[];
+  /** Full-resolution (600-sample) amplitude peaks for the main waveform player. */
+  fullWaveformPeaks?: number[];
+  /** Per-bar speaker index (600 values, parallel to fullWaveformPeaks).
+   *  Computed with the same mapToBars logic as WaveformPlayer so the mini thumbnail
+   *  uses exactly the same coloring as the full visualizer. */
+  fullBarSpeakers?: number[];
   speakers: MiniWaveformSpeaker[];
   languageSplit: { bn: number; en: number };
   /** User-confirmed speaker names keyed by speakerIndex */
@@ -134,21 +144,40 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
   })();
 
   return (
-    <div
+    <motion.div
+      layout
       className={cn(
         'group relative flex items-center gap-3 rounded-[14px] px-2.5 py-2 transition-colors duration-150',
         isActive
           ? 'bg-[rgba(var(--atelier-terracotta-rgb),0.07)]'
           : 'hover:bg-[rgba(var(--atelier-ink-rgb),0.04)]',
       )}
+      whileHover={{ y: -1 }}
+      transition={SPRING}
     >
       {/* Left accent — active session */}
-      {isActive && (
-        <div className="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-[var(--atelier-terracotta)]" />
-      )}
+      <AnimatePresence>
+        {isActive && (
+          <motion.div
+            layoutId="session-active-accent"
+            className="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-[var(--atelier-terracotta)]"
+            initial={{ opacity: 0, scaleY: 0.5 }}
+            animate={{ opacity: 1, scaleY: 1 }}
+            exit={{ opacity: 0, scaleY: 0.5 }}
+            transition={SPRING}
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Waveform thumbnail */}
-      <MiniWaveform peaks={session.waveformPeaks} speakers={session.speakers} width={48} height={32} />
+      {/* Waveform thumbnail — fullPeaks + fullBarSpeakers gives pixel-exact match with main visualizer */}
+      <MiniWaveform
+        peaks={session.waveformPeaks}
+        fullPeaks={session.fullWaveformPeaks}
+        fullBarSpeakers={session.fullBarSpeakers}
+        speakers={session.speakers}
+        width={48}
+        height={32}
+      />
 
       {/* Row text — click to load */}
       <button
@@ -193,54 +222,66 @@ function SessionRow({ session, isActive, onSelect, onDelete, onRename }: Session
 
       {/* ⋯ menu trigger — revealed on hover */}
       <div className="relative shrink-0">
-        <button
+        <motion.button
           type="button"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
           className={cn(
-            'flex h-7 w-7 items-center justify-center rounded-full transition-all duration-100',
+            'flex h-7 w-7 items-center justify-center rounded-full transition-colors duration-100',
             menuOpen
               ? 'bg-[rgba(var(--atelier-ink-rgb),0.1)] text-[rgba(var(--atelier-ink-rgb),0.7)]'
               : 'text-[rgba(var(--atelier-ink-rgb),0.35)] opacity-0 group-hover:opacity-100 hover:bg-[rgba(var(--atelier-ink-rgb),0.08)]',
           )}
+          whileTap={{ scale: 0.88 }}
+          transition={SPRING_FAST}
           aria-label="Session actions"
         >
           <MoreHorizontal size={14} strokeWidth={2} />
-        </button>
+        </motion.button>
 
-        {menuOpen && (
-          <div
-            ref={menuRef}
-            className="absolute right-0 top-8 z-50 min-w-[140px] overflow-hidden rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-white py-1 shadow-[0_8px_32px_rgba(13,18,32,0.13)]"
-          >
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setRenaming(true); setMenuOpen(false); }}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(var(--atelier-ink-rgb),0.75)] hover:bg-[rgba(var(--atelier-ink-rgb),0.05)]"
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              ref={menuRef}
+              className="absolute right-0 top-8 z-50 min-w-[140px] overflow-hidden rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.1)] bg-white py-1 shadow-[0_8px_32px_rgba(13,18,32,0.13)]"
+              initial={{ opacity: 0, scale: 0.94, y: -6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: -6 }}
+              transition={SPRING_FAST}
+              style={{ transformOrigin: 'top right' }}
             >
-              <Pencil size={12} />
-              <span>Rename</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(var(--atelier-ink-rgb),0.75)] hover:bg-[rgba(var(--atelier-ink-rgb),0.05)]"
-            >
-              <Download size={12} />
-              <span>Download</span>
-            </button>
-            <div className="mx-3 my-0.5 border-t border-[rgba(var(--atelier-ink-rgb),0.07)]" />
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(); setMenuOpen(false); }}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(207,90,67,0.82)] hover:bg-[rgba(207,90,67,0.06)]"
-            >
-              <Trash2 size={12} />
-              <span>Delete</span>
-            </button>
-          </div>
-        )}
+              <motion.button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setRenaming(true); setMenuOpen(false); }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(var(--atelier-ink-rgb),0.75)] hover:bg-[rgba(var(--atelier-ink-rgb),0.05)]"
+                whileTap={{ scale: 0.97 }}
+              >
+                <Pencil size={12} />
+                <span>Rename</span>
+              </motion.button>
+              <motion.button
+                type="button"
+                onClick={handleDownload}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(var(--atelier-ink-rgb),0.75)] hover:bg-[rgba(var(--atelier-ink-rgb),0.05)]"
+                whileTap={{ scale: 0.97 }}
+              >
+                <Download size={12} />
+                <span>Download</span>
+              </motion.button>
+              <div className="mx-3 my-0.5 border-t border-[rgba(var(--atelier-ink-rgb),0.07)]" />
+              <motion.button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(); setMenuOpen(false); }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-[12px] text-[rgba(207,90,67,0.82)] hover:bg-[rgba(207,90,67,0.06)]"
+                whileTap={{ scale: 0.97 }}
+              >
+                <Trash2 size={12} />
+                <span>Delete</span>
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -353,14 +394,17 @@ export function LibraryPanel({
             </div>
             <p className="mt-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.42)]">From library</p>
             <div className="mt-3 border-t border-[rgba(var(--atelier-ink-rgb),0.08)] pt-2.5">
-              <button
+              <motion.button
                 type="button"
                 onClick={onUploadNew}
                 className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[rgba(var(--atelier-ink-rgb),0.4)] underline-offset-2 transition-colors hover:text-[rgba(207,90,67,0.78)] hover:underline"
+                whileHover={{ x: 1 }}
+                whileTap={{ scale: 0.97 }}
+                transition={SPRING_FAST}
               >
                 <Upload size={11} />
                 Upload new file →
-              </button>
+              </motion.button>
             </div>
           </div>
 
@@ -521,16 +565,25 @@ export function LibraryPanel({
               No results for &ldquo;{searchQuery}&rdquo;
             </div>
           ) : (
-            filteredSessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                isActive={session.id === activeSessionId}
-                onSelect={() => onSelectSession(session)}
-                onDelete={() => onDeleteSession(session.id)}
-                onRename={(name) => onRenameSession(session.id, name)}
-              />
-            ))
+            <AnimatePresence initial={false}>
+              {filteredSessions.map((session, i) => (
+                <motion.div
+                  key={session.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={{ ...SPRING, delay: Math.min(i * 0.04, 0.18) }}
+                >
+                  <SessionRow
+                    session={session}
+                    isActive={session.id === activeSessionId}
+                    onSelect={() => onSelectSession(session)}
+                    onDelete={() => onDeleteSession(session.id)}
+                    onRename={(name) => onRenameSession(session.id, name)}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
           )}
         </div>
       </div>

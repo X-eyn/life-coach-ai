@@ -2,7 +2,11 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ArrowRight, Check, Copy, Download, Loader, Pencil, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
+
+const SPRING = { type: 'spring' as const, stiffness: 360, damping: 28 };
+const SPRING_FAST = { type: 'spring' as const, stiffness: 500, damping: 32 };
 
 // ── Types & helpers ────────────────────────────────────────────────────────
 
@@ -365,28 +369,32 @@ export function TranscriptView({
 
         {/* Ghost icon buttons — no border, no bg */}
         <div className="flex items-center gap-0.5">
-          <button
+          <motion.button
             onClick={copy}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[var(--atelier-ink)]"
             title="Copy full transcript"
             type="button"
+            whileTap={{ scale: 0.88 }}
+            transition={SPRING_FAST}
           >
             {copied ? <Check size={15} /> : <Copy size={15} />}
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             onClick={downloadWord}
             disabled={isDownloading}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[var(--atelier-ink)] disabled:opacity-40"
             title="Download as Word document"
             type="button"
+            whileTap={{ scale: 0.88 }}
+            transition={SPRING_FAST}
           >
             {isDownloading ? <Loader size={15} className="animate-spin" /> : <Download size={15} />}
-          </button>
+          </motion.button>
         </div>
       </div>
 
       {/* ── Stats chips + speaker names row ─────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 px-5 pb-4">
+      <div className="atelier-section-1 flex items-center justify-between gap-3 px-5 pb-4">
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             `${totalWords.toLocaleString()} words`,
@@ -418,22 +426,32 @@ export function TranscriptView({
       </div>
 
       {/* ── AI name detection confirmation strip ──────────────────── */}
-      {pendingHighConfidence.length > 0 && (
-        <div className="mx-5 mb-2 flex items-center gap-2 rounded-[10px] border border-[rgba(var(--atelier-teal-rgb),0.2)] bg-[rgba(var(--atelier-teal-rgb),0.06)] px-3 py-2">
-          <Sparkles size={11} className="shrink-0 text-[var(--atelier-teal)]" />
-          <p className="min-w-0 flex-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
-            Detected: {pendingHighConfidence.map((p) => p.name).join(', ')}
-          </p>
-          <button type="button" onClick={confirmDetectedNames}
-            className="shrink-0 rounded-[6px] bg-[var(--atelier-teal)] px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-80">
-            Confirm
-          </button>
-          <button type="button" onClick={() => setDetectionDismissed(true)}
-            className="shrink-0 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.65)]">
-            Dismiss
-          </button>
-        </div>
-      )}
+      <AnimatePresence>
+        {pendingHighConfidence.length > 0 && (
+          <motion.div
+            className="mx-5 mb-2 flex items-center gap-2 rounded-[10px] border border-[rgba(var(--atelier-teal-rgb),0.2)] bg-[rgba(var(--atelier-teal-rgb),0.06)] px-3 py-2"
+            initial={{ opacity: 0, y: -6, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -6, height: 0 }}
+            transition={SPRING}
+          >
+            <Sparkles size={11} className="shrink-0 text-[var(--atelier-teal)]" />
+            <p className="min-w-0 flex-1 text-[11px] text-[rgba(var(--atelier-ink-rgb),0.65)]">
+              Detected: {pendingHighConfidence.map((p) => p.name).join(', ')}
+            </p>
+            <motion.button type="button" onClick={confirmDetectedNames}
+              className="shrink-0 rounded-[6px] bg-[var(--atelier-teal)] px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-80"
+              whileTap={{ scale: 0.94 }} transition={SPRING_FAST}>
+              Confirm
+            </motion.button>
+            <motion.button type="button" onClick={() => setDetectionDismissed(true)}
+              className="shrink-0 text-[10px] text-[rgba(var(--atelier-ink-rgb),0.38)] transition-colors hover:text-[rgba(var(--atelier-ink-rgb),0.65)]"
+              whileTap={{ scale: 0.94 }} transition={SPRING_FAST}>
+              Dismiss
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="mx-5 border-t border-[rgba(var(--atelier-ink-rgb),0.07)]" />
 
@@ -441,7 +459,7 @@ export function TranscriptView({
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 py-4">
 
         {/* Side-by-side: Speaker distribution | Language split */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="atelier-section-2 grid grid-cols-2 gap-4">
 
           {/* Speaker distribution */}
           <div>
@@ -463,17 +481,20 @@ export function TranscriptView({
               /* Multi-speaker — full distribution bar */
               <>
                 <div className="flex h-5 w-full overflow-hidden rounded-full">
-                  {speakerStats.map((s) => (
-                    <div
+                  {speakerStats.map((s, idx) => (
+                    <motion.div
                       key={s.speakerIndex}
-                      style={{ width: `${s.pct}%`, background: speakerColor(s.speakerIndex), opacity: 0.85 }}
-                      className="relative flex items-center justify-center"
+                      style={{ background: speakerColor(s.speakerIndex), opacity: 0.85 }}
+                      className="relative flex items-center justify-center overflow-hidden"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${s.pct}%` }}
+                      transition={{ ...SPRING, delay: idx * 0.06 }}
                       title={`${s.speaker}: ${s.pct}%`}
                     >
                       {s.pct >= 18 && (
                         <span className="select-none text-[10px] font-bold text-white/90">{s.pct}%</span>
                       )}
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
@@ -515,24 +536,30 @@ export function TranscriptView({
               <>
                 <div className="flex h-5 w-full overflow-hidden rounded-full">
                   {langSplit.bangla > 0 && (
-                    <div
-                      style={{ width: `${langSplit.bangla}%`, minWidth: '10px', background: '#3d6b68', opacity: 0.88 }}
-                      className="relative flex items-center justify-center shrink-0"
+                    <motion.div
+                      style={{ minWidth: '10px', background: '#3d6b68', opacity: 0.88 }}
+                      className="relative flex items-center justify-center shrink-0 overflow-hidden"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${langSplit.bangla}%` }}
+                      transition={SPRING}
                     >
                       {langSplit.bangla >= 18 && (
                         <span className="select-none text-[10px] font-bold text-white/90">{langSplit.bangla}%</span>
                       )}
-                    </div>
+                    </motion.div>
                   )}
                   {langSplit.english > 0 && (
-                    <div
-                      style={{ width: `${langSplit.english}%`, minWidth: '10px', background: '#9baab4', opacity: 0.90 }}
-                      className="relative flex items-center justify-center shrink-0"
+                    <motion.div
+                      style={{ minWidth: '10px', background: '#9baab4', opacity: 0.90 }}
+                      className="relative flex items-center justify-center shrink-0 overflow-hidden"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${langSplit.english}%` }}
+                      transition={{ ...SPRING, delay: 0.06 }}
                     >
                       {langSplit.english >= 18 && (
                         <span className="select-none text-[10px] font-bold" style={{ color: 'rgba(13,18,32,0.65)' }}>{langSplit.english}%</span>
                       )}
-                    </div>
+                    </motion.div>
                   )}
                 </div>
                 <div className="mt-2 flex gap-3">
@@ -555,7 +582,7 @@ export function TranscriptView({
         </div>
 
         {/* Turn timeline */}
-        <div>
+        <div className="atelier-section-3">
           <SectionLabel>Conversation</SectionLabel>
           <div className="flex h-7 w-full gap-[2px] overflow-hidden rounded-[8px]">
             {turns.map((turn, i) => (
@@ -588,15 +615,18 @@ export function TranscriptView({
 
         {/* Key moments — exactly 2 cards (Longest + Final), no scroll */}
         {keyMoments.length > 0 && (
-          <div className="shrink-0">
+          <div className="atelier-section-4 shrink-0">
             <SectionLabel>Key moments</SectionLabel>
             <div className="flex flex-col gap-1.5">
               {keyMoments.map(({ idx, label, turn }) => (
-                <button
+                <motion.button
                   key={idx}
                   type="button"
                   onClick={() => handleTimelineClick(idx)}
                   className="group flex w-full items-start gap-2 rounded-[10px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.38)] px-2.5 py-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
+                  whileHover={{ y: -1, boxShadow: '0 4px 16px rgba(13,18,32,0.07)' }}
+                  whileTap={{ scale: 0.98 }}
+                  transition={SPRING}
                 >
                   <span
                     className="mt-[3px] h-2 w-2 shrink-0 rounded-full"
@@ -617,7 +647,7 @@ export function TranscriptView({
                   <span className="mt-0.5 shrink-0 text-[rgba(var(--atelier-ink-rgb),0.22)] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-[rgba(var(--atelier-ink-rgb),0.5)]">
                     →
                   </span>
-                </button>
+                </motion.button>
               ))}
             </div>
           </div>
@@ -626,12 +656,15 @@ export function TranscriptView({
 
       {/* ── Mini Evaluation Score ─────────────────────────────────────── */}
       {evaluationScore != null && (
-        <div className="shrink-0 mx-5 mb-2">
+        <div className="atelier-section-5 shrink-0 mx-5 mb-2">
           <SectionLabel>Evaluation</SectionLabel>
-          <button
+          <motion.button
             type="button"
             onClick={onExpand}
             className="flex w-full items-center gap-3 rounded-[12px] border border-[rgba(var(--atelier-ink-rgb),0.07)] bg-[rgba(255,255,255,0.4)] px-3 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.65)]"
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.985 }}
+            transition={SPRING}
           >
             <span
               className={cn(
@@ -652,20 +685,23 @@ export function TranscriptView({
               </span>
             </div>
             <ArrowRight size={13} className="shrink-0 text-[rgba(var(--atelier-ink-rgb),0.25)]" />
-          </button>
+          </motion.button>
         </div>
       )}
 
       {/* ── Read CTA ──────────────────────────────────────────────────── */}
-      <div className="border-t border-[rgba(var(--atelier-ink-rgb),0.07)] p-4">
-        <button
+      <div className="atelier-section-6 border-t border-[rgba(var(--atelier-ink-rgb),0.07)] p-4">
+        <motion.button
           type="button"
           onClick={onExpand}
-          className="flex w-full items-center justify-center gap-2 rounded-[16px] bg-[var(--atelier-ink)] px-5 py-3.5 text-[13px] font-semibold text-[var(--atelier-paper-strong)] shadow-[0_8px_24px_rgba(13,18,32,0.16)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(13,18,32,0.22)] active:translate-y-0 active:shadow-none"
+          className="flex w-full items-center justify-center gap-2 rounded-[16px] bg-[var(--atelier-ink)] px-5 py-3.5 text-[13px] font-semibold text-[var(--atelier-paper-strong)] shadow-[0_8px_24px_rgba(13,18,32,0.16)]"
+          whileHover={{ y: -2, boxShadow: '0 12px 30px rgba(13,18,32,0.22)' }}
+          whileTap={{ scale: 0.97, y: 0 }}
+          transition={SPRING}
         >
           Read full transcript
           <ArrowRight size={14} strokeWidth={2.2} />
-        </button>
+        </motion.button>
       </div>
     </div>
   );

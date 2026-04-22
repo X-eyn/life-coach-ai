@@ -344,6 +344,20 @@ button {
   100% { background-position: -200% 0; }
 }
 
+/* ── Section-level staggered reveal (transcript panel body) ─────────────── */
+
+@keyframes atelier-section-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.atelier-section-1 { animation: atelier-section-enter 0.28s var(--ease-out-expo)  30ms both; }
+.atelier-section-2 { animation: atelier-section-enter 0.28s var(--ease-out-expo) 110ms both; }
+.atelier-section-3 { animation: atelier-section-enter 0.28s var(--ease-out-expo) 195ms both; }
+.atelier-section-4 { animation: atelier-section-enter 0.28s var(--ease-out-expo) 285ms both; }
+.atelier-section-5 { animation: atelier-section-enter 0.28s var(--ease-out-expo) 360ms both; }
+.atelier-section-6 { animation: atelier-section-enter 0.28s var(--ease-out-expo) 430ms both; }
+
 /* ── Enter animations ─────────────────────────────────────────── */
 @keyframes atelier-enter {
   from {

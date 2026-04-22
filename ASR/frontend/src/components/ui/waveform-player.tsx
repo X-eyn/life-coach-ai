@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Play, Pause } from 'lucide-react';
+import { motion } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { SPEAKER_COLORS, decodeWaveformPeaks } from '@/lib/audio-utils';
+
+const SPRING_FAST = { type: 'spring' as const, stiffness: 500, damping: 32 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +31,8 @@ interface BarData {
 
 export interface WaveformPlayerProps {
   file?: File | null;
+  /** Pre-decoded amplitude peaks (0–1). Used when no file is available (historical sessions). */
+  peaks?: number[];
   turns?: WaveformTurn[];
   duration?: number | null;
   className?: string;
@@ -80,7 +85,7 @@ function mapToBars(amplitudes: number[], turns: WaveformTurn[]): BarData[] {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function WaveformPlayer({ file, turns = [], duration, className, seekRef }: WaveformPlayerProps) {
+export function WaveformPlayer({ file, peaks, turns = [], duration, className, seekRef }: WaveformPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -113,8 +118,17 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
 
   useEffect(() => {
     if (!file) {
-      setBars([]);
-      barsRef.current = [];
+      if (peaks && peaks.length > 0) {
+        // Render from pre-saved peaks (historical session — no audio file available)
+        const barData = turns.length > 0
+          ? mapToBars(peaks, turns)
+          : peaks.map((a) => ({ amplitude: a, speakerIndex: 0 }));
+        setBars(barData);
+        barsRef.current = barData;
+      } else {
+        setBars([]);
+        barsRef.current = [];
+      }
       isDirtyRef.current = true;
       return;
     }
@@ -129,7 +143,7 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
       })
       .finally(() => setIsDecoding(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file]);
+  }, [file, peaks]);
 
   // Re-map colors when turns change (after decode)
   useEffect(() => {
@@ -543,7 +557,7 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
           {fmtTime(currentTime)}
         </span>
 
-        <button
+        <motion.button
           type="button"
           onClick={togglePlay}
           disabled={!file}
@@ -554,6 +568,8 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
             'disabled:cursor-not-allowed disabled:opacity-35',
           )}
           aria-label={isPlaying ? 'Pause' : 'Play'}
+          whileTap={{ scale: 0.92 }}
+          transition={SPRING_FAST}
         >
           {isPlaying ? (
             <Pause size={11} fill="currentColor" strokeWidth={0} />
@@ -563,7 +579,7 @@ export function WaveformPlayer({ file, turns = [], duration, className, seekRef 
           <span className="text-[11px] font-semibold tracking-wide">
             {isPlaying ? 'Pause' : 'Play'}
           </span>
-        </button>
+        </motion.button>
 
         <span className="w-9 text-[11px] font-medium tabular-nums text-[rgba(var(--atelier-ink-rgb),0.45)]">
           {fmtTime(audioDuration)}

@@ -27,6 +27,12 @@ export interface MiniWaveformSpeaker {
 
 interface Props {
   peaks: number[];
+  /** Full-resolution amplitude peaks (600 bars), parallel to fullBarSpeakers. */
+  fullPeaks?: number[];
+  /** Per-bar speaker index (600 values), computed with the same mapToBars logic as
+   *  WaveformPlayer. When provided alongside fullPeaks, the thumbnail is a pixel-exact
+   *  scaled-down copy of the main visualizer — same amplitudes, same speaker colors. */
+  fullBarSpeakers?: number[];
   speakers: MiniWaveformSpeaker[];
   width?: number;
   height?: number;
@@ -36,7 +42,7 @@ interface Props {
  * Small canvas waveform thumbnail — same visual language as the main WaveformPlayer,
  * at 48×32px with ~30 amplitude bars colored by speaker proportions.
  */
-export function MiniWaveform({ peaks, speakers, width = 48, height = 32 }: Props) {
+export function MiniWaveform({ peaks, fullPeaks, fullBarSpeakers, speakers, width = 48, height = 32 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -50,11 +56,37 @@ export function MiniWaveform({ peaks, speakers, width = 48, height = 32 }: Props
     if (!ctx) return;
     ctx.scale(dpr, dpr);
 
-    // Clear
     ctx.clearRect(0, 0, width, height);
 
-    if (peaks.length === 0) {
-      // Placeholder bars when no peaks yet
+    // When full 600-bar data is available, downsample to one bar per canvas pixel.
+    // Use the same speaker index at the midpoint of each source window so the
+    // coloring is a true scaled-down copy of the main WaveformPlayer.
+    let renderPeaks: number[];
+    let renderSpeakerIndices: number[] | null = null;
+
+    if (fullPeaks && fullPeaks.length > 0) {
+      const count = width;
+      const ratio = fullPeaks.length / count;
+      renderPeaks = Array.from({ length: count }, (_, i) => {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(Math.floor((i + 1) * ratio), fullPeaks.length);
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += fullPeaks[j] ?? 0;
+        return sum / Math.max(1, end - start);
+      });
+      if (fullBarSpeakers && fullBarSpeakers.length === fullPeaks.length) {
+        renderSpeakerIndices = Array.from({ length: count }, (_, i) => {
+          // Use the speaker at the midpoint of this output bar's source window
+          const mid = Math.min(Math.round(i * ratio + ratio / 2), fullBarSpeakers.length - 1);
+          return fullBarSpeakers[mid] ?? 0;
+        });
+      }
+    } else {
+      renderPeaks = peaks;
+    }
+
+    if (renderPeaks.length === 0) {
+      // Placeholder bars when no peak data exists yet
       const step = width / 20;
       const bw = Math.max(1, step * 0.62);
       ctx.fillStyle = SPEAKER_COLORS[0];
@@ -69,18 +101,25 @@ export function MiniWaveform({ peaks, speakers, width = 48, height = 32 }: Props
       return;
     }
 
-    const count = peaks.length;
-    const totalWords = speakers.reduce((s, sp) => s + sp.wordCount, 0) || 1;
+    const count = renderPeaks.length;
 
-    // Map each bar to a speaker color by proportional word distribution
+    // Build per-bar color array — prefer exact speaker-per-bar mapping when available,
+    // fall back to proportional word-count distribution for old sessions.
     const barColors: string[] = [];
-    for (const sp of speakers) {
-      const spBars = Math.round((sp.wordCount / totalWords) * count);
-      const color = SPEAKER_COLORS[sp.id % SPEAKER_COLORS.length] ?? SPEAKER_COLORS[0];
-      for (let j = 0; j < spBars; j++) barColors.push(color);
-    }
-    while (barColors.length < count) {
-      barColors.push(barColors[barColors.length - 1] ?? SPEAKER_COLORS[0]);
+    if (renderSpeakerIndices) {
+      for (const si of renderSpeakerIndices) {
+        barColors.push(SPEAKER_COLORS[si % SPEAKER_COLORS.length] ?? SPEAKER_COLORS[0]);
+      }
+    } else {
+      const totalWords = speakers.reduce((s, sp) => s + sp.wordCount, 0) || 1;
+      for (const sp of speakers) {
+        const spBars = Math.round((sp.wordCount / totalWords) * count);
+        const color = SPEAKER_COLORS[sp.id % SPEAKER_COLORS.length] ?? SPEAKER_COLORS[0];
+        for (let j = 0; j < spBars; j++) barColors.push(color);
+      }
+      while (barColors.length < count) {
+        barColors.push(barColors[barColors.length - 1] ?? SPEAKER_COLORS[0]);
+      }
     }
 
     const step = width / count;
@@ -88,7 +127,7 @@ export function MiniWaveform({ peaks, speakers, width = 48, height = 32 }: Props
 
     for (let i = 0; i < count; i++) {
       const x = i * step;
-      const amp = Math.max(0.04, peaks[i] ?? 0.04);
+      const amp = Math.max(0.04, renderPeaks[i] ?? 0.04);
       const bh = Math.max(MIN_H, amp * (height - 4));
       const y = (height - bh) / 2;
       ctx.fillStyle = barColors[i] ?? SPEAKER_COLORS[0];
@@ -97,7 +136,7 @@ export function MiniWaveform({ peaks, speakers, width = 48, height = 32 }: Props
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-  }, [peaks, speakers, width, height]);
+  }, [peaks, fullPeaks, fullBarSpeakers, speakers, width, height]);
 
   return (
     <canvas
