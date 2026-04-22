@@ -17,54 +17,68 @@ export function MediaPlayer({ audioUrl, onTimeUpdate }: MediaPlayerProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [volume, setVolume] = useState(1);
 
+  // Reset state and force reload whenever the audio URL changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    // Call load() so the browser always fires loadedmetadata for the new src
+    audio.load();
+  }, [audioUrl]);
+
+  // Let the audio element's own play/pause events drive isPlaying state
   const togglePlay = useCallback(() => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
+    const audio = audioRef.current;
+    if (!audio || !audioUrl) return;
+    if (audio.paused) {
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
     }
-  }, [isPlaying]);
+  }, [audioUrl]);
 
   const handleTimeUpdate = useCallback(() => {
-    if (audioRef.current && !isDragging) {
-      const t = audioRef.current.currentTime;
-      const dur = audioRef.current.duration || 0;
+    const audio = audioRef.current;
+    if (audio && !isDragging) {
+      const t = audio.currentTime;
+      const dur = isFinite(audio.duration) ? audio.duration : 0;
       setCurrentTime(t);
       onTimeUpdate?.(t, dur);
     }
   }, [isDragging, onTimeUpdate]);
 
   const handleLoadedMetadata = useCallback(() => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration);
+    const audio = audioRef.current;
+    if (audio && isFinite(audio.duration)) {
+      setDuration(audio.duration);
+      // Explicitly reset playhead to zero — some browsers retain previous position
+      audio.currentTime = 0;
+      setCurrentTime(0);
     }
   }, []);
 
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     setCurrentTime(newTime);
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
+    const audio = audioRef.current;
+    if (audio && isFinite(newTime)) {
+      audio.currentTime = newTime;
     }
   }, []);
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newVolume = parseFloat(e.target.value);
     setVolume(newVolume);
-    if (audioRef.current) {
-      audioRef.current.volume = newVolume;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = newVolume;
     }
   }, []);
 
-  const handleEnded = useCallback(() => {
-    setIsPlaying(false);
-  }, []);
-
   const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds)) return '0:00';
+    if (!seconds || isNaN(seconds) || !isFinite(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -72,13 +86,16 @@ export function MediaPlayer({ audioUrl, onTimeUpdate }: MediaPlayerProps) {
 
   return (
     <div className="w-full">
-      {/* Audio Element */}
+      {/* Audio Element — all playback events drive state from here */}
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
-        onEnded={handleEnded}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
         src={audioUrl || ''}
+        preload="metadata"
       />
 
       <style jsx>{`
