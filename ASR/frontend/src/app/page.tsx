@@ -78,6 +78,7 @@ import {
   timeAgo,
   upsertSession,
 } from "@/lib/bacbon";
+import DashboardView from "@/components/dashboard-view";
 
 /* Constants */
 const BRAND = "#EA580C";
@@ -805,7 +806,16 @@ export default function HomePage() {
         />
 
         {/* ── View switcher ── */}
-        {activeView === "dashboard" || activeView === "my-transcripts" ? (
+        {activeView === "dashboard" ? (
+          <DashboardView
+            sessions={sessions}
+            onUpload={onOpenFilePicker}
+            onSelectSession={(id) => {
+              setActiveSessionId(id);
+              setActiveView("my-transcripts");
+            }}
+          />
+        ) : activeView === "my-transcripts" ? (
           <div className="grid min-h-0 overflow-hidden" style={{ gridTemplateColumns: "1fr 320px" }}>
             <CenterPanel
               session={activeSession}
