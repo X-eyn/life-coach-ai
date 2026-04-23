@@ -14,7 +14,7 @@ import io
 sys.path.insert(0, os.path.dirname(__file__))
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-from asr_google import transcribe
+from asr_google import transcribe, translate_transcript
 from evaluation import evaluate_transcript
 
 logging.basicConfig(
@@ -126,6 +126,25 @@ def download_word():
         )
     except Exception as exc:
         logger.exception("Word download generation failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/translate", methods=["POST"])
+def translate_endpoint():
+    """Re-translate an existing Bengali transcript to English."""
+    try:
+        logger.info("Incoming translation request")
+        data = request.get_json()
+        bengali = (data or {}).get("bengali", "").strip()
+        if not bengali:
+            return jsonify({"error": "No Bengali transcript provided"}), 400
+
+        english = translate_transcript(bengali)
+        logger.info("Translation completed")
+        return jsonify({"english": english})
+
+    except Exception as exc:
+        logger.exception("Translation failed")
         return jsonify({"error": str(exc)}), 500
 
 

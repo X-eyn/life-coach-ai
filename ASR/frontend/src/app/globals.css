@@ -345,14 +345,21 @@ html.dark ::-webkit-scrollbar-thumb {
 
 /* ─── Key-topic / speaker progress bars ────────────────────────────── */
 .track {
-  height: 4px;
-  background: var(--surface-gray);
+  height: 6px;
+  background: var(--track-bg, #E5E7EB);
   border-radius: 999px;
   overflow: hidden;
 }
+.dark .track { --track-bg: #2A3040; }
 .track-fill {
   height: 100%;
   border-radius: 999px;
+  transform-origin: left;
+  animation: trackGrow 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes trackGrow {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
 }
 
 /* ─── Small dots for speakers ──────────────────────────────────────── */

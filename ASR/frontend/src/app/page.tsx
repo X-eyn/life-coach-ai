@@ -42,6 +42,7 @@ import {
   SlidersHorizontal,
   Maximize2,
   Wand2,
+  Gauge,
   X,
   Check,
   Loader2,
@@ -76,7 +77,7 @@ import {
   speakerShares,
   timeAgo,
   upsertSession,
-} from "@/lib/julkar";
+} from "@/lib/bacbon";
 
 /* Constants */
 const BRAND = "#EA580C";
@@ -182,6 +183,7 @@ export default function HomePage() {
   const [speakerFilter, setSpeakerFilter] = useState<Set<number>>(new Set());
   const [filterMenuOpen, setFilterMenuOpen] = useState<boolean>(false);
   const [expandedTranscript, setExpandedTranscript] = useState<boolean>(false);
+  const [transcriptLang, setTranscriptLang] = useState<"bn" | "en">("bn");
 
   // ── Audio playback state ──
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -216,7 +218,7 @@ export default function HomePage() {
     if (stored.length > 0) setActiveSessionId(stored[0].id);
 
     try {
-      if (localStorage.getItem("julkar_theme") === "dark") {
+      if (localStorage.getItem("bacbon_theme") === "dark") {
         setTheme("dark");
         document.documentElement.classList.add("dark");
       }
@@ -228,10 +230,10 @@ export default function HomePage() {
     try {
       if (theme === "dark") {
         document.documentElement.classList.add("dark");
-        localStorage.setItem("julkar_theme", "dark");
+        localStorage.setItem("bacbon_theme", "dark");
       } else {
         document.documentElement.classList.remove("dark");
-        localStorage.setItem("julkar_theme", "light");
+        localStorage.setItem("bacbon_theme", "light");
       }
     } catch {}
   }, [theme]);
@@ -259,10 +261,20 @@ export default function HomePage() {
   const isDemo = activeSession.id === DEMO_SESSION.id;
 
   // ── Derived: turns, topics, speaker shares ──
+  // ── Derived: turns (always Bengali — used for speaker analysis / highlights)
   const turns = useMemo(
     () => parseTurns(activeSession.transcript.bengali || activeSession.transcript.english),
     [activeSession],
   );
+
+  // ── Display turns — follow the active language toggle ──
+  const displayTurns = useMemo(() => {
+    const src =
+      transcriptLang === "en" && activeSession.transcript.english
+        ? activeSession.transcript.english
+        : activeSession.transcript.bengali || activeSession.transcript.english;
+    return parseTurns(src);
+  }, [activeSession, transcriptLang]);
 
   const timings = useMemo(
     () => turnTimings(turns, activeSession.duration),
@@ -306,14 +318,14 @@ export default function HomePage() {
   // ── Filtered transcript (per-panel search + speaker filter) ──
   const visibleTurns = useMemo(() => {
     const q = transcriptSearch.trim().toLowerCase();
-    return turns
+    return displayTurns
       .map((t, idx) => ({ t, idx }))
       .filter(({ t }) => {
         if (speakerFilter.size > 0 && !speakerFilter.has(t.speakerIndex)) return false;
         if (!q) return true;
         return t.text.toLowerCase().includes(q);
       });
-  }, [turns, transcriptSearch, speakerFilter]);
+  }, [displayTurns, transcriptSearch, speakerFilter]);
 
   // ── Handle global ⌘K ──
   useEffect(() => {
@@ -504,15 +516,14 @@ export default function HomePage() {
       return;
     }
     const doomed = activeSession;
-    setSessions((prev) => {
-      const next = removeSession(prev, doomed.id);
-      saveSessions(next);
-      setActiveSessionId(next[0]?.id ?? null);
-      return next;
-    });
-    setTrashedSessions((prev) => [doomed, ...prev]);
-    pushToast("Moved to trash", "info");
-    setMoreOpen(false);
+    // Compute next synchronously so no side effects live inside the updater.
+    // React Strict Mode runs updater functions twice — any setState call inside
+    // an updater fires twice, which was the root cause of duplicate trash entries.
+    const next = removeSession(sessions, doomed.id);
+    saveSessions(next);
+    setSessions(next);
+    setActiveSessionId(next[0]?.id ?? null);
+    setTrashedSessions((prev) => [doomed, ...prev.filter((x) => x.id !== doomed.id)]);
   };
 
   const downloadDocx = async () => {
@@ -655,6 +666,7 @@ export default function HomePage() {
     overall_score?: number;
     summary?: string;
     categories?: Record<string, { score: number; feedback: string }>;
+    recommendations?: string[];
   } | null>(null);
   const [evaluating, setEvaluating] = useState<boolean>(false);
 
@@ -687,7 +699,24 @@ export default function HomePage() {
         throw new Error(body?.error ?? `HTTP ${response.status}`);
       }
       const data = await response.json();
-      setEvaluation(data);
+      // Normalize flat backend shape → frontend shape
+      // Backend: { academic_coaching: { score, justification, key_evidence }, ..., overall_score, key_observations, recommendations }
+      // Frontend expects: { overall_score, summary, categories: { [key]: { score, feedback } }, recommendations }
+      const EVAL_CATS = ["academic_coaching", "communication", "student_participation", "attitude_of_teacher"];
+      const categories: Record<string, { score: number; feedback: string }> = {};
+      for (const key of EVAL_CATS) {
+        const cat = data[key];
+        if (cat && typeof cat === "object") {
+          categories[key] = { score: cat.score ?? 0, feedback: cat.justification ?? cat.feedback ?? "" };
+        }
+      }
+      const normalized = {
+        overall_score: data.overall_score,
+        summary: data.key_observations ?? data.summary,
+        categories: Object.keys(categories).length > 0 ? categories : undefined,
+        recommendations: Array.isArray(data.recommendations) ? data.recommendations : undefined,
+      };
+      setEvaluation(normalized);
       try {
         localStorage.setItem(EVAL_KEY(activeSession.id), JSON.stringify(data));
       } catch {}
@@ -738,16 +767,18 @@ export default function HomePage() {
         activeSessionId={activeSession.id}
         setActiveSessionId={setActiveSessionId}
         recentList={sidebarRecent}
+        sessions={sessions}
         onNewTranscription={onOpenFilePicker}
         onDeleteSession={(id) => {
-          setSessions((prev) => {
-            const doomed = prev.find((s) => s.id === id);
-            if (doomed) setTrashedSessions((t) => [doomed, ...t]);
-            const next = removeSession(prev, id);
-            saveSessions(next);
-            if (activeSessionId === id) setActiveSessionId(next[0]?.id ?? null);
-            return next;
-          });
+          // Compute next outside any updater so all side effects run exactly once.
+          // setSessions updater functions are called twice in React Strict Mode,
+          // so any setState call inside an updater fires twice and causes duplicates.
+          const doomed = sessions.find((s) => s.id === id);
+          const next = removeSession(sessions, id);
+          saveSessions(next);
+          setSessions(next);
+          if (activeSessionId === id) setActiveSessionId(next[0]?.id ?? null);
+          if (doomed) setTrashedSessions((t) => [doomed, ...t.filter((x) => x.id !== doomed.id)]);
           pushToast("Moved to trash", "info");
         }}
         onRenameSession={(id, name) => {
@@ -758,7 +789,6 @@ export default function HomePage() {
           });
           pushToast("Renamed", "ok");
         }}
-        onUpgrade={() => pushToast("Upgrade flow coming soon", "info")}
       />
 
       <div className="grid min-h-0 grid-rows-[72px_1fr] overflow-hidden">
@@ -827,6 +857,8 @@ export default function HomePage() {
               onDeleteHighlight={deleteHighlight}
               isDemo={isDemo}
               audioRef={audioRef}
+              transcriptLang={transcriptLang}
+              setTranscriptLang={setTranscriptLang}
             />
 
             <RightSidebar
@@ -920,6 +952,9 @@ export default function HomePage() {
           timings={timings}
           searchQuery={transcriptSearch}
           onSeek={seekTo}
+          hasBoth={!!(activeSession.transcript.bengali && activeSession.transcript.english)}
+          transcriptLang={transcriptLang}
+          setTranscriptLang={setTranscriptLang}
         />
       )}
 
@@ -953,20 +988,20 @@ function LeftSidebar({
   activeSessionId,
   setActiveSessionId,
   recentList,
+  sessions,
   onNewTranscription,
   onDeleteSession,
   onRenameSession,
-  onUpgrade,
 }: {
   activeView: ViewFilter;
   setActiveView: (v: ViewFilter) => void;
   activeSessionId: string;
   setActiveSessionId: (id: string) => void;
   recentList: LibrarySession[];
+  sessions: LibrarySession[];
   onNewTranscription: () => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, name: string) => void;
-  onUpgrade: () => void;
 }) {
   return (
     <aside
@@ -977,7 +1012,7 @@ function LeftSidebar({
         <BrandMark />
         <div className="leading-tight">
           <div className="text-[18px] font-bold tracking-tight" style={{ color: "var(--text-900)" }}>
-            JULKAR
+            BacBon
           </div>
           <div className="-mt-0.5 text-[12px]" style={{ color: "var(--text-500)" }}>
             AI Transcriber
@@ -1048,7 +1083,7 @@ function LeftSidebar({
         </div>
       </div>
 
-      <UpgradeCard onUpgrade={onUpgrade} />
+      <ProfileCard sessions={sessions} />
     </aside>
   );
 }
@@ -1101,7 +1136,8 @@ function TrashView({
         </div>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-          {sessions.map((s) => (
+          {/* Deduplicate by id as a defensive guard before rendering */}
+          {[...new Map(sessions.map((s) => [s.id, s])).values()].map((s) => (
             <div
               key={s.id}
               className="card flex flex-col gap-3"
@@ -1396,29 +1432,63 @@ function RecentAvatar({ tint }: { tint: "brand" | "teal" }) {
   );
 }
 
-function UpgradeCard({ onUpgrade }: { onUpgrade: () => void }) {
+function ProfileCard({ sessions }: { sessions: LibrarySession[] }) {
+  const totalRecordings = sessions.length;
+  const totalSeconds = sessions.reduce((s, r) => s + (r.duration ?? 0), 0);
+  const totalWords = sessions.reduce((s, r) => s + (r.wordCount ?? 0), 0);
+  const avgBn =
+    sessions.length > 0
+      ? Math.round(sessions.reduce((s, r) => s + (r.languageSplit?.bn ?? 0), 0) / sessions.length)
+      : 0;
+  const avgEn = 100 - avgBn;
+
+  const fmtTime = (secs: number) => {
+    if (secs < 60) return `${secs}s`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  const stats: { label: string; value: string; sub?: string }[] = [
+    { label: "Recordings", value: String(totalRecordings) },
+    { label: "Audio processed", value: fmtTime(totalSeconds) },
+    { label: "Words transcribed", value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : String(totalWords) },
+    { label: "Language mix", value: totalRecordings > 0 ? `${avgBn}% BN` : "—", sub: totalRecordings > 0 ? `${avgEn}% EN` : undefined },
+  ];
+
   return (
     <div
       className="mt-4 p-4"
       style={{ background: "var(--app-bg)", border: "1px solid var(--border)", borderRadius: "12px" }}
     >
-      <div className="mb-2 flex items-center gap-2">
-        <Crown size={15} strokeWidth={2.2} style={{ color: BRAND }} />
-        <span className="text-[14px] font-bold" style={{ color: "var(--text-900)" }}>
-          Upgrade to Pro
+      <div className="mb-3 flex items-center gap-2">
+        <Gauge size={14} strokeWidth={2.2} style={{ color: BRAND }} />
+        <span className="text-[13px] font-semibold" style={{ color: "var(--text-900)" }}>
+          Your Activity
         </span>
       </div>
-      <p className="text-[12px]" style={{ color: "var(--text-500)", lineHeight: 1.4 }}>
-        Get more minutes, advanced features and priority support.
-      </p>
-      <button
-        onClick={onUpgrade}
-        className="mt-4 inline-flex h-9 w-full items-center justify-center gap-1.5 text-[13px] font-medium transition-colors hover:opacity-80"
-        style={{ background: "var(--brand-soft)", color: "var(--text-900)", borderRadius: "8px" }}
-      >
-        <span>Upgrade now</span>
-        <ArrowRight size={14} strokeWidth={2} />
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            className="flex flex-col gap-0.5 rounded-lg px-2 py-2"
+            style={{ background: "var(--surface)" }}
+          >
+            <span className="text-[18px] font-bold leading-none" style={{ color: "var(--text-900)" }}>
+              {s.value}
+              {s.sub && (
+                <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--text-400)" }}>
+                  / {s.sub}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-400)" }}>
+              {s.label}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1618,6 +1688,8 @@ function CenterPanel(props: {
   onDeleteHighlight: (id: string) => void;
   isDemo: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
+  transcriptLang: "bn" | "en";
+  setTranscriptLang: (l: "bn" | "en") => void;
 }) {
   return (
     <section className="flex min-h-0 flex-col overflow-hidden">
@@ -1790,7 +1862,7 @@ function AudioPlayerCard(props: Parameters<typeof CenterPanel>[0]) {
             className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors hover:bg-[var(--surface-muted)]"
             style={{ borderColor: "var(--border)", color: "var(--text-700)" }}
           >
-            <Wand2 size={12} strokeWidth={1.8} />
+            <Gauge size={12} strokeWidth={1.9} />
             <span className="tnum">{props.playbackRate}x</span>
           </button>
         </div>
@@ -1848,6 +1920,42 @@ function WaveformVisualizer({
   // Ref on the inner bar strip — click positions are measured against this,
   // NOT the outer container, so justify-center offset doesn't skew seek.
   const barsRef     = useRef<HTMLDivElement>(null);
+
+  // ── Smooth seek lerp ─────────────────────────────────────────────────────
+  // displayPct follows progressPct with exponential ease so the "played" wash
+  // sweeps across the bars fluidly instead of snapping on seek.
+  const [displayPct, setDisplayPct] = useState(progressPct);
+  const displayPctRef = useRef(progressPct);
+  const lerpRafRef    = useRef<number>(0);
+
+  useEffect(() => {
+    const target = progressPct;
+    const LERP = 0.14;
+    const step = () => {
+      const diff = target - displayPctRef.current;
+      if (Math.abs(diff) < 0.06) {
+        displayPctRef.current = target;
+        setDisplayPct(target);
+        return;
+      }
+      displayPctRef.current += diff * LERP;
+      setDisplayPct(displayPctRef.current);
+      lerpRafRef.current = requestAnimationFrame(step);
+    };
+    cancelAnimationFrame(lerpRafRef.current);
+    lerpRafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(lerpRafRef.current);
+  }, [progressPct]);
+
+  // ── Hover ghost cursor + fisheye hover state ─────────────────────────────
+  const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const onMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = barsRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setHoverPct(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
+  };
+  const onMouseLeave = () => setHoverPct(null);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1930,13 +2038,27 @@ function WaveformVisualizer({
       aria-valuemin={0}
       aria-valuemax={100}
       onClick={onClick}
-      className="relative flex h-[108px] w-full items-center justify-center cursor-pointer select-none"
+      onMouseMove={onMouseMove}
+      onMouseLeave={onMouseLeave}
+      className="relative flex h-[124px] w-full items-center cursor-pointer select-none overflow-visible"
     >
-      <div ref={barsRef} className="flex items-center gap-[2px]">
+      <div
+        ref={barsRef}
+        className="relative w-full flex items-center justify-between overflow-visible"
+      >
       {staticBars.map((b, i) => {
         const color = b.color === "brand" ? BRAND : b.color === "teal" ? TEAL : GRAY_BAR;
         const barPct = (i / BAR_COUNT) * 100;
-        const passed = barPct < progressPct;
+        const passed = barPct < displayPct;
+
+        // ─ Gaussian fisheye — bars near cursor grow, distant bars untouched──────
+        // sigma controls the spread (~8% of waveform width = ~9 bars)
+        let barScaleY = 1;
+        if (hoverPct !== null) {
+          const dist = Math.abs(barPct - hoverPct) / 100;
+          const sigma = 0.08;
+          barScaleY = 1 + 0.75 * Math.exp(-(dist * dist) / (2 * sigma * sigma));
+        }
 
         // When playing, blend decoded amplitude with real-time analyser value
         let heightPx: number;
@@ -1964,12 +2086,43 @@ function WaveformVisualizer({
               width: 3,
               height: `${heightPx}px`,
               background: color,
-              opacity: passed ? 1 : 0.4,
-              transition: isPlaying ? "height 80ms ease-out" : undefined,
+              opacity: passed ? 1 : 0.35,
+              transform: `scaleY(${barScaleY.toFixed(3)})`,
+              transformOrigin: "center",
+              transition: "opacity 90ms ease-out, height 80ms ease-out, transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+              flexShrink: 0,
             }}
           />
         );
       })}
+
+      {/* Hover ghost cursor — shows where click would seek */}
+      {hoverPct !== null && (
+        <span
+          className="pointer-events-none absolute inset-y-[-6px] w-px"
+          style={{
+            left: `${hoverPct}%`,
+            transform: "translateX(-50%)",
+            background: "var(--text-400, #9ca3af)",
+            opacity: 0.5,
+            borderRadius: 1,
+          }}
+        />
+      )}
+
+      {/* Playhead — smooth animated position indicator */}
+      {displayPct > 0.5 && (
+        <span
+          className="pointer-events-none absolute inset-y-[-4px] w-[2px] rounded-full"
+          style={{
+            left: `${displayPct}%`,
+            transform: "translateX(-50%)",
+            background: BRAND,
+            opacity: 0.85,
+            boxShadow: `0 0 6px 1px ${BRAND}55`,
+          }}
+        />
+      )}
       </div>
     </div>
   );
@@ -1991,6 +2144,9 @@ function Skip15({ direction }: { direction: "back" | "forward" }) {
 }
 
 function TranscriptCard(props: Parameters<typeof CenterPanel>[0]) {
+  const hasBoth =
+    !!(props.session.transcript.bengali && props.session.transcript.english);
+
   return (
     <div className="card enter-3">
       <div
@@ -2023,16 +2179,40 @@ function TranscriptCard(props: Parameters<typeof CenterPanel>[0]) {
           })}
         </div>
 
-        <PanelTools
-          transcriptSearch={props.transcriptSearch}
-          setTranscriptSearch={props.setTranscriptSearch}
-          filterMenuOpen={props.filterMenuOpen}
-          setFilterMenuOpen={props.setFilterMenuOpen}
-          speakerFilter={props.speakerFilter}
-          setSpeakerFilter={props.setSpeakerFilter}
-          shares={props.shares}
-          onExpand={props.onExpand}
-        />
+        <div className="flex items-center gap-2">
+          {/* Language toggle — only visible on transcript tab when both languages exist */}
+          {props.activeTab === "transcript" && hasBoth && (
+            <div
+              className="flex items-center rounded-lg p-0.5"
+              style={{ background: "var(--surface-gray)", gap: 2 }}
+            >
+              {(["bn", "en"] as const).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => props.setTranscriptLang(l)}
+                  className="rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                  style={{
+                    background: props.transcriptLang === l ? "var(--app-bg)" : "transparent",
+                    color: props.transcriptLang === l ? "var(--text-900)" : "var(--text-400)",
+                    boxShadow: props.transcriptLang === l ? "0 1px 3px rgba(0,0,0,.08)" : "none",
+                  }}
+                >
+                  {l === "bn" ? "বাংলা" : "English"}
+                </button>
+              ))}
+            </div>
+          )}
+          <PanelTools
+            transcriptSearch={props.transcriptSearch}
+            setTranscriptSearch={props.setTranscriptSearch}
+            filterMenuOpen={props.filterMenuOpen}
+            setFilterMenuOpen={props.setFilterMenuOpen}
+            speakerFilter={props.speakerFilter}
+            setSpeakerFilter={props.setSpeakerFilter}
+            shares={props.shares}
+            onExpand={props.onExpand}
+          />
+        </div>
       </div>
 
       <div className="p-6">
@@ -2040,6 +2220,7 @@ function TranscriptCard(props: Parameters<typeof CenterPanel>[0]) {
           <TranscriptList
             turns={props.visibleTurns}
             timings={props.timings}
+            currentTime={props.currentTime}
             searchQuery={props.transcriptSearch}
             onSeek={props.onSeekTo}
           />
@@ -2179,14 +2360,56 @@ function PanelTools({
 function TranscriptList({
   turns,
   timings,
+  currentTime,
   searchQuery,
   onSeek,
 }: {
   turns: { t: Turn; idx: number }[];
   timings: number[];
+  currentTime: number;
   searchQuery: string;
   onSeek: (t: number) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Map from visible-list index → row DOM element
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Which visible-list row is currently active
+  const activeVisibleIdx = useMemo(() => {
+    if (turns.length === 0) return -1;
+    let best = -1;
+    for (let vi = 0; vi < turns.length; vi++) {
+      const t = timings[turns[vi].idx] ?? 0;
+      if (t <= currentTime) best = vi;
+    }
+    return best;
+  }, [currentTime, timings, turns]);
+
+  const prevActiveRef = useRef(-1);
+
+  useEffect(() => {
+    if (activeVisibleIdx < 0 || activeVisibleIdx === prevActiveRef.current) return;
+    prevActiveRef.current = activeVisibleIdx;
+
+    const container = containerRef.current;
+    const row = rowRefs.current.get(activeVisibleIdx);
+    if (!container || !row) return;
+
+    // Scroll within the container — never touches the page scroll
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const relTop = rowRect.top - containerRect.top + container.scrollTop;
+    const relBottom = relTop + rowRect.height;
+    const pad = 24; // px of breathing room above the active row
+
+    // Only scroll if row is not already comfortably visible
+    const visTop = container.scrollTop;
+    const visBottom = visTop + container.clientHeight;
+    if (relTop - pad < visTop || relBottom + pad > visBottom) {
+      container.scrollTo({ top: Math.max(0, relTop - pad), behavior: "smooth" });
+    }
+  }, [activeVisibleIdx]);
+
   if (turns.length === 0) {
     return (
       <div className="py-8 text-center text-[13px]" style={{ color: "var(--text-500)" }}>
@@ -2194,17 +2417,29 @@ function TranscriptList({
       </div>
     );
   }
+
   return (
-    <div className="flex flex-col" style={{ gap: "32px" }}>
-      {turns.map(({ t, idx }) => (
+    <div
+      ref={containerRef}
+      className="overflow-y-auto"
+      style={{ maxHeight: "480px", scrollbarGutter: "stable" }}
+    >
+      <div className="flex flex-col py-2" style={{ gap: "28px" }}>
+      {turns.map(({ t, idx }, vi) => (
         <TranscriptRow
           key={t.id}
           turn={t}
           time={timings[idx] ?? 0}
           searchQuery={searchQuery}
+          isActive={vi === activeVisibleIdx}
           onSeek={onSeek}
+          rowRef={(el) => {
+            if (el) rowRefs.current.set(vi, el);
+            else rowRefs.current.delete(vi);
+          }}
         />
       ))}
+      </div>
     </div>
   );
 }
@@ -2213,16 +2448,28 @@ function TranscriptRow({
   turn,
   time,
   searchQuery,
+  isActive,
   onSeek,
+  rowRef,
 }: {
   turn: Turn;
   time: number;
   searchQuery: string;
+  isActive: boolean;
   onSeek: (t: number) => void;
+  rowRef: (el: HTMLDivElement | null) => void;
 }) {
   const color = SPEAKER_COLORS[turn.speakerIndex % SPEAKER_COLORS.length];
   return (
-    <div className="flex items-start gap-6">
+    <div
+      ref={rowRef}
+      className="flex items-start gap-6 rounded-[8px] transition-all duration-300"
+      style={{
+        paddingLeft: isActive ? "10px" : "0px",
+        borderLeft: isActive ? `3px solid ${color}` : "3px solid transparent",
+        opacity: isActive ? 1 : 0.75,
+      }}
+    >
       <button
         onClick={() => onSeek(time)}
         className="tnum shrink-0 pt-0.5 text-[14px] transition-colors hover:text-[var(--brand)]"
@@ -2540,13 +2787,16 @@ function KeyTopicsCard({
           </div>
         )}
         {topics.map((t) => (
-          <div key={t.label}>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[13px]" style={{ color: "var(--text-700)" }}>{t.label}</span>
-              <span className="tnum text-[13px] font-medium" style={{ color: "var(--text-900)" }}>{t.percent}%</span>
+          <div key={t.label} className="group">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[13px] font-medium" style={{ color: "var(--text-700)" }}>{t.label}</span>
+              <span className="tnum text-[12px] font-semibold tabular-nums" style={{ color: "var(--text-500)" }}>{t.percent}%</span>
             </div>
             <div className="track">
-              <span className="track-fill" style={{ width: `${t.percent}%`, background: BRAND }} />
+              <span
+                className="track-fill block"
+                style={{ width: `${t.percent}%`, background: `linear-gradient(90deg, ${BRAND}cc, ${BRAND})` }}
+              />
             </div>
           </div>
         ))}
@@ -2577,17 +2827,20 @@ function SpeakersCard({ shares }: { shares: ShareInfo[] }) {
         )}
         {shares.map((s) => (
           <div key={s.id}>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-[13px]" style={{ color: "var(--text-700)" }}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-2 text-[13px] font-medium" style={{ color: "var(--text-700)" }}>
                 <span className="dot" style={{ background: s.color }} />
                 {s.name}
               </span>
-              <span className="tnum text-[13px] font-medium" style={{ color: "var(--text-900)" }}>
+              <span className="tnum text-[12px] font-semibold tabular-nums" style={{ color: "var(--text-500)" }}>
                 {s.percent}%
               </span>
             </div>
             <div className="track">
-              <span className="track-fill" style={{ width: `${s.percent}%`, background: s.color }} />
+              <span
+                className="track-fill block"
+                style={{ width: `${s.percent}%`, background: `linear-gradient(90deg, ${s.color}bb, ${s.color})` }}
+              />
             </div>
           </div>
         ))}
@@ -2796,6 +3049,7 @@ function SummaryModal({
     overall_score?: number;
     summary?: string;
     categories?: Record<string, { score: number; feedback: string }>;
+    recommendations?: string[];
   } | null;
   evaluating: boolean;
   onEvaluate: () => void;
@@ -2825,8 +3079,19 @@ function SummaryModal({
             Summary
           </h4>
           <p className="mt-2 text-[14px] leading-relaxed" style={{ color: "var(--text-700)" }}>
-            {evaluation?.summary ?? summary}
+            {summary}
           </p>
+
+          {evaluation?.summary && (
+            <>
+              <h4 className="mt-5 text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-500)" }}>
+                Key Observations
+              </h4>
+              <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--text-700)" }}>
+                {evaluation.summary.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1").replace(/_{1,3}([^_]+)_{1,3}/g, "$1")}
+              </p>
+            </>
+          )}
 
           <div className="mt-5 flex items-center justify-between">
             <h4 className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-500)" }}>
@@ -2881,6 +3146,22 @@ function SummaryModal({
                 </div>
               ))}
             </div>
+          )}
+
+          {evaluation?.recommendations && evaluation.recommendations.length > 0 && (
+            <>
+              <h4 className="mt-5 text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-500)" }}>
+                Recommendations
+              </h4>
+              <ul className="mt-2 flex flex-col gap-2">
+                {evaluation.recommendations.map((rec, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[13px]" style={{ color: "var(--text-700)", lineHeight: 1.5 }}>
+                    <span className="mt-[3px] shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: "rgba(139,92,246,0.12)", color: PURPLE }}>{i + 1}</span>
+                    <span>{rec}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       </div>
@@ -2939,12 +3220,18 @@ function ExpandedTranscriptModal({
   timings,
   searchQuery,
   onSeek,
+  hasBoth,
+  transcriptLang,
+  setTranscriptLang,
 }: {
   onClose: () => void;
   turns: { t: Turn; idx: number }[];
   timings: number[];
   searchQuery: string;
   onSeek: (t: number) => void;
+  hasBoth: boolean;
+  transcriptLang: "bn" | "en";
+  setTranscriptLang: (l: "bn" | "en") => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -2955,12 +3242,35 @@ function ExpandedTranscriptModal({
       >
         <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
           <h3 className="text-[17px] font-bold" style={{ color: "var(--text-900)" }}>Transcript</h3>
-          <button onClick={onClose} aria-label="Close" style={{ color: "var(--text-400)" }}>
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            {hasBoth && (
+              <div
+                className="flex items-center rounded-lg p-0.5"
+                style={{ background: "var(--surface-gray)", gap: 2 }}
+              >
+                {(["bn", "en"] as const).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setTranscriptLang(l)}
+                    className="rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                    style={{
+                      background: transcriptLang === l ? "var(--app-bg)" : "transparent",
+                      color: transcriptLang === l ? "var(--text-900)" : "var(--text-400)",
+                      boxShadow: transcriptLang === l ? "0 1px 3px rgba(0,0,0,.08)" : "none",
+                    }}
+                  >
+                    {l === "bn" ? "বাংলা" : "English"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={onClose} aria-label="Close" style={{ color: "var(--text-400)" }}>
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          <TranscriptList turns={turns} timings={timings} searchQuery={searchQuery} onSeek={onSeek} />
+          <TranscriptList turns={turns} timings={timings} currentTime={0} searchQuery={searchQuery} onSeek={onSeek} />
         </div>
       </div>
     </div>

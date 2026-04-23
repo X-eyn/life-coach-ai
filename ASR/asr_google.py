@@ -11,6 +11,44 @@ if not API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in .env file")
 genai.configure(api_key=API_KEY)
 
+def translate_transcript(bengali_text: str) -> str:
+    """
+    Translate a Bengali speaker-diarized transcript into English.
+
+    Rules enforced:
+    - Speaker labels that are Bengali words are translated to their English meaning
+      (e.g. **শিক্ষক:** → **Teacher:**, **ছাত্র:** → **Student:**).
+    - Labels already in English (e.g. **Speaker 1:**) are kept unchanged.
+    - Every turn is translated individually; the turn order and count are preserved exactly.
+    - English words embedded in the Bengali (code-switching) stay in English.
+    - Ellipses (...), dashes (-), and parenthetical stage directions are preserved and translated.
+    - Output is the plain translated transcript only — no preamble, no commentary.
+    """
+    model = genai.GenerativeModel('models/gemini-3-flash-preview')
+    prompt = f"""You are a professional Bengali-to-English translator specialising in spoken-language transcripts.
+
+Your task is to translate the Bengali transcript below into natural, fluent English.
+
+Strict rules — follow every one:
+1. SPEAKER LABELS: Translate Bengali speaker labels into their English meaning.
+   Examples: **শিক্ষক:** → **Teacher:** | **ছাত্র:** → **Student:** | **উপস্থাপক:** → **Host:**
+   If a label is already in English (e.g. **Speaker 1:**) leave it exactly as-is.
+2. TURN STRUCTURE: Keep exactly the same number of turns in exactly the same order.
+   One Bengali turn → one English turn. Do not merge, split, or reorder turns.
+3. CONTENT: Translate what was actually said — do not paraphrase or summarise.
+   English words already present in the Bengali (code-switching) stay unchanged.
+4. FORMATTING: Keep bold (**…**) for speaker labels. Keep ellipses (…), dashes (—/-),
+   and parenthetical stage directions (e.g. *(long pause)*) — translate the stage directions too.
+5. OUTPUT: The translated transcript only. No introduction, no commentary, nothing else.
+
+Bengali transcript:
+{bengali_text}"""
+
+    print("Translating Bengali transcript to English...", file=sys.stderr)
+    response = model.generate_content(prompt)
+    return response.text
+
+
 def transcribe(audio_file_path):
     print(f"Uploading {audio_file_path} to Gemini...", file=sys.stderr)
     
@@ -41,25 +79,13 @@ def transcribe(audio_file_path):
     Do not add any introductory or concluding remarks. Just output the pure, formatted transcription.
     """
 
-    # English transcription prompt
-    english_prompt = """
-    You are an expert audio transcriber and translator. Your task is to:
-    1. Transcribe the provided audio in English with 100% accuracy
-    2. Use speaker diarization with labels like **Speaker 1:** or **Speaker 2:** based on contextual clues
-    3. Maintain the same formatting and structure as the Bengali version
-    4. Preserve natural pauses, interruptions, and conversational nuances
-    5. Include speaker labels in bold followed by colon and their speech
-    
-    Do not add any introductory or concluding remarks. Just output the pure, formatted English transcription.
-    """
-
     print("Transcribing in Bengali...", file=sys.stderr)
     bengali_response = model.generate_content([bengali_prompt, audio_file])
     bengali_text = bengali_response.text
 
-    print("Transcribing in English...", file=sys.stderr)
-    english_response = model.generate_content([english_prompt, audio_file])
-    english_text = english_response.text
+    # English is produced by translating the Bengali transcript — NOT by running a
+    # second independent audio pass — so both languages stay perfectly in sync.
+    english_text = translate_transcript(bengali_text)
 
     genai.delete_file(audio_file.name)
 
