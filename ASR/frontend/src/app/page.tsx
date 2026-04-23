@@ -94,7 +94,7 @@ const USER_EMAIL = "zanium.ahmed@gmail.com";
    ───────────────────────────────────────────────────────────────────────── */
 
 type Toast = { id: number; text: string; tone: "ok" | "err" | "info" };
-type ViewFilter = "dashboard" | "my-transcripts" | "shared" | "library" | "trash";
+type ViewFilter = "dashboard" | "my-transcripts" | "transcript-list" | "shared" | "library" | "trash";
 
 /* ─────────────────────────────────────────────────────────────────────────
    Demo fallback — shown when no sessions exist yet
@@ -731,8 +731,7 @@ export default function HomePage() {
 
   // ── Back / clear active ──
   const goBack = () => {
-    setActiveSessionId(null);
-    setActiveView("dashboard");
+    setActiveView("transcript-list");
   };
 
   /* ─────────────────────────────────────────────────────────────────── */
@@ -887,6 +886,16 @@ export default function HomePage() {
               onCopyTranscript={copyTranscript}
             />
           </div>
+        ) : activeView === "transcript-list" ? (
+          <TranscriptListView
+            sessions={sessions}
+            activeSessionId={activeSession.id}
+            onSelect={(id) => {
+              setActiveSessionId(id);
+              setActiveView("my-transcripts");
+            }}
+            onNewTranscription={onOpenFilePicker}
+          />
         ) : activeView === "trash" ? (
           <TrashView
             sessions={trashedSessions}
@@ -986,7 +995,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "my-transcripts", label: "My Transcripts", icon: FileText },
+  { id: "transcript-list", label: "My Transcripts", icon: FileText },
   { id: "shared", label: "Shared with me", icon: Users },
   { id: "library", label: "Library", icon: BookOpen },
   { id: "trash", label: "Trash", icon: Trash2 },
@@ -1043,7 +1052,9 @@ function LeftSidebar({
       <nav className="mt-6 flex flex-col gap-2">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
-          const active = activeView === item.id;
+          const active =
+            activeView === item.id ||
+            (item.id === "transcript-list" && activeView === "my-transcripts");
           return (
             <button
               key={item.id}
@@ -1068,7 +1079,7 @@ function LeftSidebar({
           <button
             className="text-[12px] transition-colors hover:underline"
             style={{ color: "var(--text-400)" }}
-            onClick={() => setActiveView("my-transcripts")}
+            onClick={() => setActiveView("transcript-list")}
           >
             See all
           </button>
@@ -1095,6 +1106,209 @@ function LeftSidebar({
 
       <ProfileCard sessions={sessions} />
     </aside>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Transcript list view — full table of all sessions
+   ───────────────────────────────────────────────────────────────────────── */
+function TranscriptListView({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onNewTranscription,
+}: {
+  sessions: LibrarySession[];
+  activeSessionId: string;
+  onSelect: (id: string) => void;
+  onNewTranscription: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<"name" | "duration" | "createdAt" | "wordCount">("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = sessions;
+    if (q) list = list.filter((s) => s.name.toLowerCase().includes(q) || (s.transcript.english ?? "").toLowerCase().includes(q));
+    return [...list].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [sessions, search, sortKey, sortDir]);
+
+  const toggleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  const SortIcon = ({ col }: { col: typeof sortKey }) => {
+    if (sortKey !== col) return <span className="ml-1 opacity-30">↕</span>;
+    return <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-8">
+      {/* Header row */}
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-[22px] font-bold tracking-tight" style={{ color: "var(--text-900)" }}>
+            My Transcripts
+          </h2>
+          <p className="mt-0.5 text-[13px]" style={{ color: "var(--text-400)" }}>
+            {sessions.length} {sessions.length === 1 ? "transcript" : "transcripts"} total
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative">
+            <Search size={13} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--text-400)" }} />
+            <input
+              type="text"
+              placeholder="Search transcripts…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="panel-search w-[220px]"
+            />
+          </div>
+          {/* New */}
+          <button
+            onClick={onNewTranscription}
+            className="flex items-center gap-2 rounded-[10px] px-4 py-2 text-[13px] font-semibold text-white"
+            style={{ background: "var(--brand)" }}
+          >
+            <Plus size={14} strokeWidth={2.2} />
+            New
+          </button>
+        </div>
+      </div>
+
+      {sessions.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "var(--surface)", border: "1.5px solid var(--border)" }}>
+            <FileText size={28} style={{ color: "var(--text-300)" }} />
+          </div>
+          <div>
+            <p className="text-[15px] font-medium" style={{ color: "var(--text-900)" }}>No transcripts yet</p>
+            <p className="mt-1 text-[13px]" style={{ color: "var(--text-400)" }}>Upload an audio file to get started</p>
+          </div>
+          <button
+            onClick={onNewTranscription}
+            className="flex items-center gap-2 rounded-[10px] px-5 py-2.5 text-[13px] font-semibold text-white"
+            style={{ background: "var(--brand)" }}
+          >
+            <Plus size={14} strokeWidth={2.2} />
+            New Transcription
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-[16px]" style={{ border: "1.5px solid var(--border)" }}>
+          {/* Table */}
+          <table className="w-full text-left text-[13px]">
+            <thead>
+              <tr style={{ background: "var(--surface)", borderBottom: "1.5px solid var(--border)" }}>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "35%" }}>
+                  <button className="flex items-center" onClick={() => toggleSort("name")}>
+                    Name <SortIcon col="name" />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "14%" }}>
+                  <button className="flex items-center" onClick={() => toggleSort("duration")}>
+                    Duration <SortIcon col="duration" />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "12%" }}>
+                  Speakers
+                </th>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "12%" }}>
+                  Language
+                </th>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "15%" }}>
+                  <button className="flex items-center" onClick={() => toggleSort("createdAt")}>
+                    Created <SortIcon col="createdAt" />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-semibold" style={{ color: "var(--text-500)", width: "12%" }}>
+                  <button className="flex items-center" onClick={() => toggleSort("wordCount")}>
+                    Words <SortIcon col="wordCount" />
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s, i) => {
+                const isActive = s.id === activeSessionId;
+                const speakerCount = s.speakers?.length ?? 1;
+                const lang = s.languageSplit?.bn > s.languageSplit?.en ? "Bengali" : "English";
+                return (
+                  <tr
+                    key={s.id}
+                    onClick={() => onSelect(s.id)}
+                    className="cursor-pointer transition-colors"
+                    style={{
+                      background: isActive ? "rgba(234,88,12,0.04)" : i % 2 === 0 ? "var(--app-bg)" : "var(--surface)",
+                      borderBottom: "1px solid var(--border)",
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLTableRowElement).style.background = "rgba(234,88,12,0.05)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isActive ? "rgba(234,88,12,0.04)" : i % 2 === 0 ? "var(--app-bg)" : "var(--surface)"; }}
+                  >
+                    {/* Name */}
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]" style={{ background: "rgba(234,88,12,0.1)" }}>
+                          <FileText size={14} style={{ color: "var(--brand)" }} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold" style={{ color: "var(--text-900)", maxWidth: "280px" }}>
+                            {s.name}
+                          </p>
+                          {isActive && (
+                            <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--brand)" }}>Active</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    {/* Duration */}
+                    <td className="px-4 py-3.5 tnum" style={{ color: "var(--text-600)" }}>
+                      {fmtDuration(s.duration)}
+                    </td>
+                    {/* Speakers */}
+                    <td className="px-4 py-3.5" style={{ color: "var(--text-600)" }}>
+                      <div className="flex items-center gap-1.5">
+                        <Users size={12} style={{ color: "var(--text-400)" }} />
+                        {speakerCount}
+                      </div>
+                    </td>
+                    {/* Language */}
+                    <td className="px-4 py-3.5">
+                      <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ background: "rgba(13,148,136,0.1)", color: "#0D9488" }}>
+                        {lang}
+                      </span>
+                    </td>
+                    {/* Created */}
+                    <td className="px-4 py-3.5 text-[12px]" style={{ color: "var(--text-500)" }}>
+                      {timeAgo(s.createdAt)}
+                    </td>
+                    {/* Words */}
+                    <td className="px-4 py-3.5 tnum" style={{ color: "var(--text-600)" }}>
+                      {s.wordCount.toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {filtered.length === 0 && (
+            <div className="py-10 text-center text-[13px]" style={{ color: "var(--text-400)" }}>
+              No transcripts match your search
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
